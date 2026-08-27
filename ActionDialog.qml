@@ -612,23 +612,12 @@ FocusScope {
         border.color: Util.alpha(root.securityColor,
           root.securityBlocking ? 0.55 : 0.35)
 
-        // A coloured spine so the block reads as one unit at a glance.
-        Rectangle {
-          anchors.left: parent.left
-          anchors.top: parent.top
-          anchors.bottom: parent.bottom
-          width: Style.space(root.securityBlocking ? 3 : 2)
-          radius: width
-          color: root.securityColor
-          opacity: 0.9
-        }
-
         Column {
           id: securityCol
           anchors.left: parent.left
           anchors.right: parent.right
           anchors.top: parent.top
-          anchors.leftMargin: securityBox.pad + Style.spacing.xs
+          anchors.leftMargin: securityBox.pad
           anchors.rightMargin: securityBox.pad
           anchors.topMargin: securityBox.pad
           spacing: Style.spacing.sm

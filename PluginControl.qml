@@ -37,6 +37,7 @@ Item {
   property bool settingsMenuOpen: false
   property bool spaceActivatesSelection: false
   property bool previewOpen: false
+  property bool updateAllOpen: false
   property string previewUrl: ""
   property string previewName: ""
   property int previewWidth: 0
@@ -128,7 +129,7 @@ Item {
     ? "Plugin website" : "Marketplace"
   readonly property bool actionDialogReadOnly: actionDialog.readOnly
   readonly property bool modalDialogOpened: actionDialog.opened
-    || selfRemovalDialog.opened || previewOpen
+    || selfRemovalDialog.opened || previewOpen || updateAllOpen
   readonly property bool hasUpdateWarnings: service
     && service.updateWarnings && service.updateWarnings.length > 0
   readonly property string updateWarningText: hasUpdateWarnings
@@ -417,6 +418,36 @@ Item {
     return true
   }
 
+  function openUpdateAll() {
+    if (!service) return
+    updateAllOpen = true
+    service.requestUpdatesReport()
+  }
+
+  function closeUpdateAll() {
+    updateAllOpen = false
+    Qt.callLater(queryInput.forceActiveFocus)
+  }
+
+  function updateAllIds(cleanOnly) {
+    var report = service ? service.updatesReport : null
+    var list = report && report.plugins ? report.plugins : []
+    var ids = []
+    for (var i = 0; i < list.length; i++) {
+      if (cleanOnly === true && list[i].verdict !== "no-static-findings") continue
+      ids.push(String(list[i].id))
+    }
+    return ids.join(",")
+  }
+
+  function confirmUpdateAll(cleanOnly) {
+    var ids = updateAllIds(cleanOnly)
+    if (!ids) { closeUpdateAll(); return }
+    if (service) service.startUpdateAll(ids)
+  }
+
+  readonly property bool updateAllModal: updateAllOpen
+
   function runHeaderAction(action) {
     var value = String(action || "")
     if (value === "refresh") {
@@ -455,6 +486,13 @@ Item {
     transientMessage = ""
     if (settingsMenuOpen) closeSettingsMenu()
     else rebuildResults()
+    // Selecting Updates runs a check if one has not run this session, so the
+    // filter reflects real pullable updates rather than sitting empty until
+    // the user finds the check-updates icon.
+    if (next === "updates" && service
+        && !service.checkingUpdates
+        && String(service.lastSuccessfulUpdateCheck || "") === "")
+      service.requestUpdateCheck()
     Qt.callLater(queryInput.forceActiveFocus)
   }
 
@@ -774,6 +812,11 @@ Item {
   }
 
   function handleKey(event) {
+    if (updateAllOpen) {
+      if ((event.key === Qt.Key_Escape || event.key === Qt.Key_Q)
+          && service && !service.updatingAll) closeUpdateAll()
+      return true
+    }
     var returnKey = event.key === Qt.Key_Escape
       || (event.modifiers === Qt.NoModifier && event.key === Qt.Key_Q)
     if (returnKey) {
@@ -888,6 +931,15 @@ Item {
   Connections {
     target: root.service
     function onRecordsChanged() { root.rebuildResults() }
+    function onUpdateAllFinished(summary) {
+      root.updateAllOpen = false
+      var ok = summary && summary.ok ? summary.ok : 0
+      var failed = summary && summary.failed ? summary.failed : 0
+      root.transientMessage = "Updated " + ok + " plugin"
+        + (ok === 1 ? "" : "s")
+        + (failed > 0 ? ", " + failed + " failed" : "")
+      Qt.callLater(root.rebuildResults)
+    }
     function onActionFinished(state) {
       root.transientMessage = ""
       root.rebuildResults()
@@ -1176,6 +1228,67 @@ Item {
             }
           }
 
+          // Update All banner: only in the Updates view, only when there is
+          // something to update and we are not in a detail.
+          Rectangle {
+            id: updateAllBanner
+            visible: root.paletteChromeVisible && !root.detailOpen
+              && root.activeFilter === "updates" && root.pendingUpdateCount > 0
+            width: parent.width
+            height: visible ? Style.space(30) : 0
+            radius: Style.cornerRadius
+            color: Util.alpha(root.accent, updateAllMouse.containsMouse ? 0.20 : 0.12)
+            border.width: Math.max(1, Style.space(1))
+            border.color: Util.alpha(root.accent, 0.45)
+
+            MouseArea {
+              id: updateAllMouse
+              anchors.fill: parent
+              hoverEnabled: true
+              cursorShape: root.modalDialogOpened
+                ? Qt.ArrowCursor : Qt.PointingHandCursor
+              onClicked: if (!root.modalDialogOpened) root.openUpdateAll()
+            }
+
+            Row {
+              anchors.left: parent.left
+              anchors.leftMargin: Style.spacing.md
+              anchors.verticalCenter: parent.verticalCenter
+              spacing: Style.spacing.sm
+
+              Text {
+                anchors.verticalCenter: parent.verticalCenter
+                text: Icons.glyph("update")
+                textFormat: Text.PlainText
+                color: root.accent
+                font.family: Style.font.family
+                font.pixelSize: Style.font.body
+              }
+              Text {
+                anchors.verticalCenter: parent.verticalCenter
+                text: root.pendingUpdateCount + " update"
+                  + (root.pendingUpdateCount === 1 ? "" : "s") + " available"
+                textFormat: Text.PlainText
+                color: root.foreground
+                font.family: Style.font.menuFamily
+                font.pixelSize: Style.font.bodySmall
+              }
+            }
+
+            Text {
+              anchors.right: parent.right
+              anchors.rightMargin: Style.spacing.md
+              anchors.verticalCenter: parent.verticalCenter
+              text: "Scan & Update All  \u2192"
+              textFormat: Text.PlainText
+              color: root.accent
+              font.family: Style.font.menuFamily
+              font.pixelSize: Style.font.bodySmall
+              font.bold: true
+            }
+          }
+
+
           Item {
             id: columnHeader
             visible: root.paletteChromeVisible
@@ -1399,6 +1512,181 @@ Item {
             onSourceRequested: root.openGithubShortcut()
             onStatusDismissed: root.dismissStatus()
           }
+        }
+      }
+    }
+
+    // ---- Update All review overlay -------------------------------------
+    FocusScope {
+      id: updateAllLayer
+      visible: root.updateAllOpen
+      anchors.fill: parent
+      z: 90
+
+      readonly property var report: root.service ? root.service.updatesReport : ({})
+      readonly property var plugins: report && report.plugins ? report.plugins : []
+      readonly property var counts: report && report.counts
+        ? report.counts : ({ total: 0, clean: 0, flagged: 0 })
+      readonly property bool scanning: root.service
+        ? root.service.updatesScanning : false
+      readonly property bool updating: root.service
+        ? root.service.updatingAll : false
+
+      Rectangle {
+        anchors.fill: parent
+        color: root.background
+        opacity: 0.97
+      }
+
+      MouseArea {
+        anchors.fill: parent
+        hoverEnabled: true
+        onClicked: if (!updateAllLayer.updating) root.closeUpdateAll()
+      }
+
+      Column {
+        anchors.centerIn: parent
+        width: Math.min(parent.width - Style.space(64), Style.space(520))
+        spacing: Style.spacing.md
+
+        Text {
+          width: parent.width
+          text: updateAllLayer.scanning
+            ? "Scanning " + root.pendingUpdateCount + " incoming update"
+              + (root.pendingUpdateCount === 1 ? "" : "s") + "…"
+            : (updateAllLayer.updating ? "Updating…"
+              : "Review updates  ·  " + updateAllLayer.counts.clean
+                + " clean, " + updateAllLayer.counts.flagged + " flagged")
+          textFormat: Text.PlainText
+          color: root.foreground
+          font.family: Style.font.menuFamily
+          font.pixelSize: Style.font.title
+          font.bold: true
+        }
+
+        // per-plugin verdicts
+        Column {
+          visible: !updateAllLayer.scanning
+          width: parent.width
+          spacing: Style.space(4)
+
+          Repeater {
+            model: updateAllLayer.updating ? [] : updateAllLayer.plugins
+
+            delegate: Rectangle {
+              required property var modelData
+              width: parent.width
+              height: Style.space(30)
+              radius: Style.cornerRadius
+              color: Util.alpha(root.foreground, 0.05)
+
+              readonly property color vColor: modelData.verdict === "review-required"
+                ? root.urgent
+                : (modelData.verdict === "review-suggested"
+                  ? root.shortcutColor : root.successColor)
+
+              Rectangle {
+                id: vdot
+                anchors.left: parent.left
+                anchors.leftMargin: Style.spacing.md
+                anchors.verticalCenter: parent.verticalCenter
+                width: Style.space(7); height: width; radius: width
+                color: parent.vColor
+              }
+              Text {
+                anchors.left: vdot.right
+                anchors.leftMargin: Style.spacing.sm
+                anchors.verticalCenter: parent.verticalCenter
+                text: String(modelData.name || modelData.id)
+                textFormat: Text.PlainText
+                color: root.foreground
+                font.family: Style.font.menuFamily
+                font.pixelSize: Style.font.bodySmall
+              }
+              Text {
+                anchors.right: parent.right
+                anchors.rightMargin: Style.spacing.md
+                anchors.verticalCenter: parent.verticalCenter
+                text: modelData.verdict === "no-static-findings" ? "clean"
+                  : (modelData.verdict === "review-required"
+                    ? "review required" : "worth a look")
+                  + (modelData.high > 0 || modelData.medium > 0
+                    ? "  (" + (modelData.high > 0 ? modelData.high + "H " : "")
+                      + (modelData.medium > 0 ? modelData.medium + "M" : "").trim() + ")"
+                    : "")
+                textFormat: Text.PlainText
+                color: parent.vColor
+                font.family: Style.font.menuFamily
+                font.pixelSize: Style.font.caption
+              }
+            }
+          }
+        }
+
+        // actions
+        Row {
+          visible: !updateAllLayer.scanning && !updateAllLayer.updating
+          anchors.horizontalCenter: parent.horizontalCenter
+          spacing: Style.spacing.sm
+
+          Rectangle {
+            visible: updateAllLayer.counts.flagged > 0
+              && updateAllLayer.counts.clean > 0
+            width: cleanText.implicitWidth + Style.spacing.lg * 2
+            height: Style.space(32)
+            radius: Style.cornerRadius
+            color: Util.alpha(root.foreground, cleanHover.containsMouse ? 0.16 : 0.08)
+            border.width: Math.max(1, Style.space(1))
+            border.color: Util.alpha(root.foreground, 0.20)
+            MouseArea { id: cleanHover; anchors.fill: parent; hoverEnabled: true
+              cursorShape: Qt.PointingHandCursor
+              onClicked: root.confirmUpdateAll(true) }
+            Text { id: cleanText; anchors.centerIn: parent
+              text: "Update clean (" + updateAllLayer.counts.clean + ")"
+              color: root.foreground; font.family: Style.font.menuFamily
+              font.pixelSize: Style.font.bodySmall }
+          }
+
+          Rectangle {
+            width: allText.implicitWidth + Style.spacing.lg * 2
+            height: Style.space(32)
+            radius: Style.cornerRadius
+            color: Util.alpha(root.accent, allHover.containsMouse ? 0.24 : 0.14)
+            border.width: Math.max(1, Style.space(1))
+            border.color: Util.alpha(root.accent, 0.55)
+            MouseArea { id: allHover; anchors.fill: parent; hoverEnabled: true
+              cursorShape: Qt.PointingHandCursor
+              onClicked: root.confirmUpdateAll(false) }
+            Text { id: allText; anchors.centerIn: parent
+              text: "Update all (" + updateAllLayer.counts.total + ")"
+              color: root.accent; font.family: Style.font.menuFamily
+              font.pixelSize: Style.font.bodySmall; font.bold: true }
+          }
+
+          Rectangle {
+            width: cancelText.implicitWidth + Style.spacing.lg * 2
+            height: Style.space(32)
+            radius: Style.cornerRadius
+            color: "transparent"
+            MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor
+              onClicked: root.closeUpdateAll() }
+            Text { id: cancelText; anchors.centerIn: parent; text: "Cancel"
+              color: root.foreground; opacity: 0.6
+              font.family: Style.font.menuFamily; font.pixelSize: Style.font.bodySmall }
+          }
+        }
+
+        Text {
+          visible: !updateAllLayer.scanning && !updateAllLayer.updating
+          width: parent.width
+          text: "Flagged updates are still applied by \u201cUpdate all\u201d — "
+            + "open one to see why before you do."
+          textFormat: Text.PlainText
+          color: root.foreground
+          opacity: 0.5
+          font.family: Style.font.menuFamily
+          font.pixelSize: Style.font.caption
+          wrapMode: Text.WordWrap
         }
       }
     }

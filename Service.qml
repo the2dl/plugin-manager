@@ -28,6 +28,9 @@ Item {
   property var auditState: ({})
   property bool auditing: false
   property string auditForId: ""
+  property var updatesReport: ({})
+  property bool updatesScanning: false
+  property bool updatingAll: false
   readonly property string pluginsRoot: (Quickshell.env("XDG_CONFIG_HOME")
     || Quickshell.env("HOME") + "/.config") + "/omarchy/plugins"
   property bool animationsEnabled: true
@@ -98,6 +101,8 @@ Item {
 
   signal actionFinished(var state)
   signal auditReady(string pluginId, var report)
+  signal updatesReportReady(var report)
+  signal updateAllFinished(var summary)
 
   function parseJson(raw, fallback) {
     try { return JSON.parse(String(raw || "")) } catch (error) { return fallback }
@@ -378,6 +383,30 @@ Item {
     return true
   }
 
+  // Scan the incoming diff of every plugin with a pending update, for the
+  // Update All review. Read-only.
+  function requestUpdatesReport() {
+    if (!helperPath || updatesReportProcess.running || updatingAll) return false
+    updatesScanning = true
+    updatesReport = ({})
+    updatesReportProcess.output = ""
+    updatesReportProcess.command = [helperPath, "audit-updates", sourceDir]
+    updatesReportProcess.running = true
+    return true
+  }
+
+  // Update the given ids (a CSV the UI chose after seeing the scan).
+  function startUpdateAll(idsCsv) {
+    if (!helperPath || updateAllProcess.running || !String(idsCsv)) return false
+    var ids = String(idsCsv).split(",").filter(function(x) { return x.length })
+    if (ids.length === 0) return false
+    updatingAll = true
+    updateAllProcess.output = ""
+    updateAllProcess.command = [helperPath, "update-all", sourceDir].concat(ids)
+    updateAllProcess.running = true
+    return true
+  }
+
   function startAction(operation, pluginId, snapshotId, executionMode) {
     if (!helperPath || actionRunning || actionProcess.running) return false
     if (["add", "remove", "remove-purge", "enable", "disable", "update"]
@@ -568,6 +597,40 @@ Item {
       onStreamFinished: statusProcess.output = text
     }
     onExited: root.acceptStatus(output)
+  }
+
+  Process {
+    id: updatesReportProcess
+    property string output: ""
+    stdout: StdioCollector {
+      waitForEnd: true
+      onStreamFinished: updatesReportProcess.output = text
+    }
+    onExited: function(exitCode) {
+      var report = ({ plugins: [], counts: { total: 0, clean: 0, flagged: 0 } })
+      try { report = JSON.parse(updatesReportProcess.output || "{}") }
+      catch (e) {}
+      root.updatesReport = report
+      root.updatesScanning = false
+      root.updatesReportReady(report)
+    }
+  }
+
+  Process {
+    id: updateAllProcess
+    property string output: ""
+    stdout: StdioCollector {
+      waitForEnd: true
+      onStreamFinished: updateAllProcess.output = text
+    }
+    onExited: function(exitCode) {
+      var summary = ({ ok: 0, failed: 0, results: [] })
+      try { summary = JSON.parse(updateAllProcess.output || "{}") }
+      catch (e) {}
+      root.updatingAll = false
+      root.updateAllFinished(summary)
+      root.requestRefresh(true)   // rebuild the snapshot so updated plugins clear
+    }
   }
 
   Process {

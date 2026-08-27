@@ -146,12 +146,14 @@ Rectangle {
       visible: root.warning.length > 0
       anchors.left: parent.left
       anchors.verticalCenter: parent.verticalCenter
-      // "Upstream changed" means an update is available, not a problem, so it
-      // takes the accent colour and an update glyph rather than a red warning.
-      text: root.warning === "Upstream changed"
-        ? Icons.glyph("update") : Icons.glyph("warning")
+      // A real pending update shows as the "Update" state (blue). This marker
+      // is only for warnings; "Upstream changed" (the marketplace validated an
+      // older commit than upstream) is informational, so it stays muted rather
+      // than red or update-blue.
+      text: Icons.glyph("warning")
       textFormat: Text.PlainText
-      color: root.warning === "Upstream changed" ? root.accent : root.urgent
+      color: root.warning === "Upstream changed"
+        ? Util.alpha(root.foreground, 0.5) : root.urgent
       opacity: root.selected ? 1 : 0.80
       font.family: Style.font.family
       font.pixelSize: Style.font.caption

@@ -61,8 +61,11 @@ function warningState(record) {
 
 function stateLabel(record) {
   if (record.builtIn === true) return record.enabled === false ? "Disabled" : "Built-in"
-  if (record.installed === true)
-    return record.enabled === false ? "Disabled" : "Added"
+  if (record.installed === true) {
+    if (record.enabled === false) return "Disabled"
+    if (record.updateAvailable === true) return "Update"
+    return "Added"
+  }
   if (record.installable === true) return "Available"
   return "Browse only"
 }
@@ -152,6 +155,7 @@ function normalizeRecord(value) {
   record.sourceRank = sourceRank(record)
   record.sourceLabel = sourceLabel(record)
   record.warning = warningState(record)
+  record.updateAvailable = record.updateAvailable === true
   record.stateLabel = stateLabel(record)
   record.installed = record.installed === true
   record.enabled = record.enabled !== false
@@ -161,7 +165,6 @@ function normalizeRecord(value) {
     && record.builtIn !== true
   record.gitManaged = record.gitManaged === true
   record.dirty = record.dirty === true
-  record.updateAvailable = record.updateAvailable === true
   record.updateStatus = cleanText(record.updateStatus) || "unknown"
   record.updateReason = cleanText(record.updateReason)
   record.localCommit = cleanText(record.localCommit)

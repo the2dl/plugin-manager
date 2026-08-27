@@ -18,7 +18,7 @@ done
 unset backend_module
 
 usage() {
-  json_error "usage: plugin-control <cached|refresh|check-updates|audit|audit-remote|audit-update|preview|ensure-config|config-status|status|action|ack|benchmark> ..."
+  json_error "usage: plugin-control <cached|refresh|check-updates|audit|audit-remote|audit-update|audit-updates|update-all|preview|ensure-config|config-status|status|action|ack|benchmark> ..."
 }
 
 # audit_command <public-root> <plugin-dir> [diff-ref]
@@ -119,6 +119,63 @@ audit_update_command() {
   fi
 }
 
+# audit_updates_command <public-root>
+# For every plugin with a pending update, scan the incoming diff and collect a
+# compact row: id, name, verdict, high/medium counts, and short finding labels.
+audit_updates_command() {
+  local root="$1"
+  init_paths
+  local us="$UPDATE_STATE"
+  local ids=""
+  [[ -f $us && ! -L $us ]] && ids="$(jq -r '.records[]?|select(.updateAvailable==true)|.id' "$us" 2>/dev/null)"
+  local rows="[]"
+  local id dir report row
+  while IFS= read -r id; do
+    [[ -n $id ]] || continue
+    dir="$PLUGINS_ROOT/$id"
+    [[ -d $dir ]] || continue
+    report="$(audit_update_command "$root" "$dir" 2>/dev/null)"
+    row="$(jq -c --arg id "$id" '{
+      id: $id,
+      name: (.plugin.name // $id),
+      verdict: .summary.verdict,
+      high: (.summary.high // 0),
+      medium: (.summary.medium // 0),
+      findings: [ .findings[]? | select(.severity != "info") | .short ] | unique
+    }' <<<"$report" 2>/dev/null)" || continue
+    [[ -n $row ]] && rows="$(jq -c --argjson row "$row" '. + [$row]' <<<"$rows")"
+  done <<<"$ids"
+  jq -cn --argjson rows "$rows" '{
+    plugins: $rows,
+    counts: {
+      total: ($rows | length),
+      clean: ($rows | map(select(.verdict == "no-static-findings")) | length),
+      flagged: ($rows | map(select(.verdict == "review-required" or .verdict == "review-suggested")) | length)
+    }
+  }'
+}
+
+# update_all_command <public-root> <id...>
+# Update each id in turn, then let the shell rebuild its snapshot.
+update_all_command() {
+  local root="$1"; shift
+  init_paths
+  local results="[]" id
+  for id in "$@"; do
+    if omarchy plugin update "$id" --yes >/dev/null 2>&1; then
+      results="$(jq -c --arg id "$id" '. + [{id:$id, ok:true}]' <<<"$results")"
+    else
+      results="$(jq -c --arg id "$id" '. + [{id:$id, ok:false}]' <<<"$results")"
+    fi
+  done
+  omarchy-shell -q shell rescanPlugins >/dev/null 2>&1 || true
+  jq -cn --argjson r "$results" '{
+    results: $r,
+    ok: ($r | map(select(.ok)) | length),
+    failed: ($r | map(select(.ok | not)) | length)
+  }'
+}
+
 main() {
   local command="${1:-}"
   shift || true
@@ -202,6 +259,19 @@ main() {
       # commit. Read-only -- the incoming code is scanned, not run or installed.
       (( $# == 2 )) || { usage; return 2; }
       audit_update_command "$(source_root "$1")" "$2"
+      ;;
+    audit-updates)
+      # Batch: scan the incoming diff of every plugin with a pending update.
+      # Read-only. Returns one JSON row per plugin with its verdict.
+      (( $# == 1 )) || { usage; return 2; }
+      audit_updates_command "$(source_root "$1")"
+      ;;
+    update-all)
+      # Update the given plugin ids in sequence (the UI passes the set it
+      # chose after seeing the scan). Returns per-id results.
+      (( $# >= 2 )) || { usage; return 2; }
+      local root; root="$(source_root "$1")"; shift
+      update_all_command "$root" "$@"
       ;;
     preview)
       (( $# == 4 )) || { usage; return 2; }

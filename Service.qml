@@ -69,10 +69,10 @@ Item {
   readonly property string helperPath: sourceDir
     ? sourceDir + "/bin/plugin-control" : ""
   readonly property string channelConfigPath: configHome
-    + "/omarchy/ilyazar.plugin-control/channels.yaml"
+    + "/omarchy/the2dl.plugin-manager/channels.yaml"
   readonly property bool actionRunning: actionStarting
     || (actionState && actionState.running === true)
-  readonly property string moduleName: "io.github.ilyazar.plugin-control"
+  readonly property string moduleName: "io.github.the2dl.plugin-manager"
   readonly property var updateWarnings: {
     var values = []
     for (var i = 0; i < records.length; i++) {

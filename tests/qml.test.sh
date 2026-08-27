@@ -383,7 +383,7 @@ grep -Fq 'PLUGIN_CONTROL_WATCH_OK fresh install save' \
   "$runtime_root/quickshell.log"
 grep -Fq 'PLUGIN_CONTROL_INTERACTION_OK palette interactions' \
   "$runtime_root/quickshell.log"
-test -f "$runtime_root/config/omarchy/ilyazar.plugin-control/channels.yaml"
+test -f "$runtime_root/config/omarchy/the2dl.plugin-manager/channels.yaml"
 if grep -Fq 'PLUGIN_CONTROL_LOAD_ERROR' "$runtime_root/quickshell.log"; then
   sed -n '1,240p' "$runtime_root/quickshell.log" >&2
   exit 1

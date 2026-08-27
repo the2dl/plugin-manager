@@ -4,7 +4,7 @@ const assert = require("node:assert/strict");
 const Fuzzy = require("../Fuzzy.js");
 const Catalog = require("../CatalogModel.js");
 const Palette = require("../PaletteViewModel.js");
-const SELF_ID = "io.github.ilyazar.plugin-control";
+const SELF_ID = "io.github.the2dl.plugin-manager";
 
 function test(name, callback) {
   try {

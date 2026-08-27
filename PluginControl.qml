@@ -49,15 +49,15 @@ Item {
   property color marketplaceOrange: Color.accent
 
   readonly property string pluginId: manifest && manifest.id
-    ? String(manifest.id) : "io.github.ilyazar.plugin-control"
+    ? String(manifest.id) : "io.github.the2dl.plugin-manager"
   readonly property string configHome: Quickshell.env("XDG_CONFIG_HOME")
     || Quickshell.env("HOME") + "/.config"
   readonly property string settingsPath: configHome
-    + "/omarchy/ilyazar.plugin-control/settings.json"
+    + "/omarchy/the2dl.plugin-manager/settings.json"
   readonly property string cacheHome: Quickshell.env("XDG_CACHE_HOME")
     || Quickshell.env("HOME") + "/.cache"
   readonly property string previewCacheUrlPrefix: "file://" + cacheHome
-    + "/omarchy/ilyazar.plugin-control/previews/"
+    + "/omarchy/the2dl.plugin-manager/previews/"
   readonly property string themeColorsPath: Color.currentThemePath
     + "/colors.toml"
   readonly property color background: Color.menu.background
@@ -984,7 +984,7 @@ Item {
     anchors { top: true; bottom: true; left: true; right: true }
     color: "transparent"
     exclusionMode: ExclusionMode.Ignore
-    WlrLayershell.namespace: "ilyazar.plugin-control"
+    WlrLayershell.namespace: "the2dl.plugin-manager"
     WlrLayershell.layer: WlrLayer.Overlay
     WlrLayershell.keyboardFocus: root.surfaceVisible
       ? WlrKeyboardFocus.Exclusive : WlrKeyboardFocus.None

@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "id": "io.github.ilyazar.plugin-control",
+  "id": "io.github.the2dl.plugin-manager",
   "name": "Plugin Manager",
   "version": "0.2.1",
   "author": "ilyaZar",

@@ -1,7 +1,7 @@
 # Plugin Control completion audit
 
 This audit records release-readiness evidence for
-`io.github.ilyazar.plugin-control`.
+`io.github.the2dl.plugin-manager`.
 
 ## Product and repository
 

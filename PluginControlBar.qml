@@ -4,7 +4,7 @@ import qs.Ui
 
 BarWidget {
   id: root
-  moduleName: "io.github.ilyazar.plugin-control"
+  moduleName: "io.github.the2dl.plugin-manager"
 
   property bool settingsMenuOpen: false
   readonly property var service: root.bar && root.bar.shell

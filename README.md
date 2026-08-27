@@ -66,7 +66,7 @@ unchanged from upstream for drop-in compatibility):
 o.bind(
   "SUPER + P",
   "Plugin Manager",
-  "omarchy-shell shell toggle io.github.ilyazar.plugin-control '{}'"
+  "omarchy-shell shell toggle io.github.the2dl.plugin-manager '{}'"
 )
 ```
 
@@ -94,9 +94,6 @@ the rule that an AI pass may only raise a verdict, never lower it. The YARA
 ruleset, the shellcheck pass, the exfil combo, and the UI gating are Plugin Manager's
 own, tuned against the full marketplace so a clean plugin doesn't drown a real
 finding in noise.
-
-The plugin **id** stays `io.github.ilyazar.plugin-control` so Plugin Manager drops into
-an existing install, and to keep the lineage honest.
 
 ## License
 

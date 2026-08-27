@@ -45,7 +45,7 @@ fi
 if [[ ${MOCK_OMARCHY_SLEEP:-0} != 0 ]]; then
   sleep "$MOCK_OMARCHY_SLEEP"
 fi
-if [[ $* == "plugin remove io.github.ilyazar.plugin-control --yes" \
+if [[ $* == "plugin remove io.github.the2dl.plugin-manager --yes" \
     && -n ${MOCK_REMOVE_PATH:-} ]]; then
   mv -T -- "$MOCK_REMOVE_PATH" "$MOCK_REMOVE_PATH.removed"
 fi
@@ -88,7 +88,7 @@ helper() {
 }
 
 rebuild_snapshot() {
-  rm -f -- "$XDG_STATE_HOME/omarchy/ilyazar.plugin-control/snapshot.json"
+  rm -f -- "$XDG_STATE_HOME/omarchy/the2dl.plugin-manager/snapshot.json"
   helper cached "$ROOT"
 }
 
@@ -107,14 +107,14 @@ wait_action() {
 }
 
 wait_worker_release() {
-  flock -w 5 "$XDG_RUNTIME_DIR/omarchy-ilyazar.plugin-control/action.lock" true
+  flock -w 5 "$XDG_RUNTIME_DIR/omarchy-the2dl.plugin-manager/action.lock" true
 }
 
 helper help | grep -Fq \
   'plugin-control start [--tray-hidden | --tray-visible]'
 jq -cn '
   {
-    id: "io.github.ilyazar.plugin-control",
+    id: "io.github.the2dl.plugin-manager",
     name: "Plugin Control",
     kinds: ["service", "overlay", "bar-widget"],
     enabled: false
@@ -123,16 +123,16 @@ jq -cn '
 
 helper start --tray-hidden | grep -Fq 'tray icon hidden'
 grep -Fqx 'shell rescanPlugins' "$MOCK_SHELL_LOG"
-grep -Fqx 'plugin enable io.github.ilyazar.plugin-control' "$MOCK_LOG"
-grep -Fqx 'bar set io.github.ilyazar.plugin-control trayIconHidden true --json' \
+grep -Fqx 'plugin enable io.github.the2dl.plugin-manager' "$MOCK_LOG"
+grep -Fqx 'bar set io.github.the2dl.plugin-manager trayIconHidden true --json' \
   "$MOCK_LOG"
 
 helper start | grep -Fq 'tray icon visible'
-grep -Fqx 'bar set io.github.ilyazar.plugin-control trayIconHidden false --json' \
+grep -Fqx 'bar set io.github.the2dl.plugin-manager trayIconHidden false --json' \
   "$MOCK_LOG"
 
 sed -i 's/tray-icon-hidden: false/tray-icon-hidden: true/' \
-  "$XDG_CONFIG_HOME/omarchy/ilyazar.plugin-control/channels.yaml"
+  "$XDG_CONFIG_HOME/omarchy/the2dl.plugin-manager/channels.yaml"
 helper start | grep -Fq 'tray icon hidden'
 helper start --tray-visible | grep -Fq 'tray icon visible'
 
@@ -144,7 +144,7 @@ fi
 [[ $(wc -l <"$MOCK_LOG") == "$before_invalid_start" ]]
 
 helper stop | grep -Fq 'Plugin Control stopped'
-grep -Fqx 'plugin disable io.github.ilyazar.plugin-control' "$MOCK_LOG"
+grep -Fqx 'plugin disable io.github.the2dl.plugin-manager' "$MOCK_LOG"
 if helper stop --tray-hidden >/dev/null 2>&1; then
   printf 'not ok - stop accepted a tray flag\n' >&2
   exit 1
@@ -153,7 +153,7 @@ printf 'ok - public lifecycle CLI follows native flags and tray defaults\n'
 
 printf '[]\n' >"$MOCK_RUNTIME"
 
-cache_dir="$XDG_CACHE_HOME/omarchy/ilyazar.plugin-control/channels"
+cache_dir="$XDG_CACHE_HOME/omarchy/the2dl.plugin-manager/channels"
 mkdir -p "$cache_dir"
 cp "$TEST_DIR/fixtures/catalog-action.json" "$cache_dir/marketplace.json"
 
@@ -170,7 +170,7 @@ cached_again="$(helper cached "$ROOT")"
 printf 'ok - warm cache read skips native and Git refresh work\n'
 
 export MOCK_LIST_SLEEP=0.3
-rm -f -- "$XDG_STATE_HOME/omarchy/ilyazar.plugin-control/snapshot.json"
+rm -f -- "$XDG_STATE_HOME/omarchy/the2dl.plugin-manager/snapshot.json"
 snapshot_started="$(date +%s%3N)"
 helper cached "$ROOT" >"$TEMP_ROOT/snapshot-one.json" &
 snapshot_pid_one=$!
@@ -190,7 +190,7 @@ jq -cn '{ok:true,records:[range(0;400) as $number
       description:("x" * 600),source:"marketplace",sourceRank:20,
       marketplaceListed:true,repository:"https://github.com/example/large"}]}' \
   >"$cache_dir/marketplace.json"
-rm -f -- "$XDG_STATE_HOME/omarchy/ilyazar.plugin-control/snapshot.json"
+rm -f -- "$XDG_STATE_HOME/omarchy/the2dl.plugin-manager/snapshot.json"
 large_snapshot="$(helper cached "$ROOT")"
 jq -e '(.records | length) >= 400
   and any(.records[]; .id == "io.example.large-399")' \
@@ -201,7 +201,7 @@ cp "$TEST_DIR/fixtures/catalog-action.json" "$cache_dir/marketplace.json"
 snapshot="$(rebuild_snapshot)"
 snapshot_id="$(jq -r '.snapshotId' <<<"$snapshot")"
 
-snapshot_state="$XDG_STATE_HOME/omarchy/ilyazar.plugin-control/snapshot.json"
+snapshot_state="$XDG_STATE_HOME/omarchy/the2dl.plugin-manager/snapshot.json"
 cp "$snapshot_state" "$TEMP_ROOT/current-snapshot.json"
 jq '.config.version = 1' "$snapshot_state" >"$snapshot_state.tmp"
 mv "$snapshot_state.tmp" "$snapshot_state"
@@ -600,36 +600,36 @@ jq -e '.ok == false and (.message | contains("identity or path changed"))' \
   <<<"$status" >/dev/null
 printf 'ok - changed manifest identity is refused\n'
 
-self_plugin="$plugins_root/io.github.ilyazar.plugin-control"
+self_plugin="$plugins_root/io.github.the2dl.plugin-manager"
 mkdir -p "$self_plugin/lib" "$self_plugin/config" "$self_plugin/bootstrap"
 cp "$ROOT/manifest.json" "$self_plugin/manifest.json"
 cp "$ROOT/lib/catalog.jq" "$ROOT/lib/channel_config.rb" "$self_plugin/lib/"
 cp "$ROOT/config/channels.yaml" "$self_plugin/config/channels.yaml"
 cp "$ROOT/bootstrap/catalog.json" "$self_plugin/bootstrap/catalog.json"
-printf '[{"id":"io.github.ilyazar.plugin-control","name":"Plugin Control",\n  "kinds":["service","overlay","bar-widget"],\n  "enabled":true,"firstParty":false}]\n' >"$MOCK_RUNTIME"
+printf '[{"id":"io.github.the2dl.plugin-manager","name":"Plugin Control",\n  "kinds":["service","overlay","bar-widget"],\n  "enabled":true,"firstParty":false}]\n' >"$MOCK_RUNTIME"
 rm -f -- "$snapshot_state"
 snapshot="$(helper cached "$self_plugin")"
 snapshot_id="$(jq -r '.snapshotId' <<<"$snapshot")"
-jq -e '.records[] | select(.id == "io.github.ilyazar.plugin-control")
+jq -e '.records[] | select(.id == "io.github.the2dl.plugin-manager")
   | .installed == true and .removable == true and .dirty == false' \
   <<<"$snapshot" >/dev/null
 export MOCK_REMOVE_PATH="$self_plugin"
-helper action "$self_plugin" remove io.github.ilyazar.plugin-control \
+helper action "$self_plugin" remove io.github.the2dl.plugin-manager \
   "$snapshot_id" background >/dev/null
 status="$(wait_action)"
 wait_worker_release
 jq -e '.ok == true and .operation == "remove"
-  and .pluginId == "io.github.ilyazar.plugin-control"
+  and .pluginId == "io.github.the2dl.plugin-manager"
   and .acknowledged == true' <<<"$status" >/dev/null
 grep -Fqx \
-  'plugin remove io.github.ilyazar.plugin-control --yes' "$MOCK_LOG"
+  'plugin remove io.github.the2dl.plugin-manager --yes' "$MOCK_LOG"
 [[ ! -e $self_plugin && -d $self_plugin.removed && ! -e $snapshot_state ]]
-[[ -f $XDG_CONFIG_HOME/omarchy/ilyazar.plugin-control/channels.yaml
-  && -f $XDG_STATE_HOME/omarchy/ilyazar.plugin-control/channels.json
-  && -f $XDG_CACHE_HOME/omarchy/ilyazar.plugin-control/channels/marketplace.json
-  && -f $XDG_STATE_HOME/omarchy/ilyazar.plugin-control/action.json
-  && -f $XDG_STATE_HOME/omarchy/ilyazar.plugin-control/action.log ]]
-if find "$XDG_STATE_HOME/omarchy/ilyazar.plugin-control/worker" \
+[[ -f $XDG_CONFIG_HOME/omarchy/the2dl.plugin-manager/channels.yaml
+  && -f $XDG_STATE_HOME/omarchy/the2dl.plugin-manager/channels.json
+  && -f $XDG_CACHE_HOME/omarchy/the2dl.plugin-manager/channels/marketplace.json
+  && -f $XDG_STATE_HOME/omarchy/the2dl.plugin-manager/action.json
+  && -f $XDG_STATE_HOME/omarchy/the2dl.plugin-manager/action.log ]]
+if find "$XDG_STATE_HOME/omarchy/the2dl.plugin-manager/worker" \
   \( -name 'plugin-control-*' -o -name 'snapshot-*.json' \) | grep -q .; then
   printf 'not ok - self removal left worker staging files\n' >&2
   exit 1
@@ -643,7 +643,7 @@ snapshot="$(helper cached "$self_plugin")"
 snapshot_id="$(jq -r '.snapshotId' <<<"$snapshot")"
 export MOCK_REMOVE_PATH="$self_plugin"
 export MOCK_EXIT=1
-helper action "$self_plugin" remove io.github.ilyazar.plugin-control \
+helper action "$self_plugin" remove io.github.the2dl.plugin-manager \
   "$snapshot_id" background >/dev/null
 status="$(wait_action)"
 wait_worker_release
@@ -659,7 +659,7 @@ rm -f -- "$snapshot_state"
 snapshot="$(helper cached "$self_plugin")"
 snapshot_id="$(jq -r '.snapshotId' <<<"$snapshot")"
 export MOCK_EXIT=1
-helper action "$self_plugin" remove io.github.ilyazar.plugin-control \
+helper action "$self_plugin" remove io.github.the2dl.plugin-manager \
   "$snapshot_id" background >/dev/null
 status="$(wait_action)"
 wait_worker_release
@@ -671,14 +671,14 @@ printf 'ok - failed self removal keeps its checkout and snapshot\n'
 
 mkdir -p "$self_plugin/scripts" "$XDG_CONFIG_HOME/hypr"
 cp "$ROOT/scripts/remove-keybinding.rb" "$self_plugin/scripts/"
-touch "$XDG_CONFIG_HOME/omarchy/ilyazar.plugin-control/purge-config" \
-  "$XDG_CACHE_HOME/omarchy/ilyazar.plugin-control/purge-cache" \
-  "$XDG_STATE_HOME/omarchy/ilyazar.plugin-control/purge-state"
+touch "$XDG_CONFIG_HOME/omarchy/the2dl.plugin-manager/purge-config" \
+  "$XDG_CACHE_HOME/omarchy/the2dl.plugin-manager/purge-cache" \
+  "$XDG_STATE_HOME/omarchy/the2dl.plugin-manager/purge-state"
 cat >"$XDG_CONFIG_HOME/hypr/bindings.lua" <<'LUA'
 o.bind(
   "CTRL + P",
   "Plugin Control",
-  "omarchy-shell shell toggle io.github.ilyazar.plugin-control '{}'"
+  "omarchy-shell shell toggle io.github.the2dl.plugin-manager '{}'"
 )
 
 o.bind("SUPER + T", "Terminal", "omarchy-launch-terminal")
@@ -688,7 +688,7 @@ snapshot="$(helper cached "$self_plugin")"
 snapshot_id="$(jq -r '.snapshotId' <<<"$snapshot")"
 export MOCK_REMOVE_PATH="$self_plugin"
 started="$(helper action "$self_plugin" remove-purge \
-  io.github.ilyazar.plugin-control "$snapshot_id" background)"
+  io.github.the2dl.plugin-manager "$snapshot_id" background)"
 purge_pid="$(jq -r '.pid' <<<"$started")"
 deadline=$((SECONDS + 10))
 while [[ -e $self_plugin && $SECONDS -lt $deadline ]]; do
@@ -698,12 +698,12 @@ while kill -0 "$purge_pid" 2>/dev/null && (( SECONDS < deadline )); do
   sleep 0.05
 done
 [[ ! -e $self_plugin && -d $self_plugin.removed ]]
-[[ ! -e $XDG_CONFIG_HOME/omarchy/ilyazar.plugin-control
-  && ! -e $XDG_CACHE_HOME/omarchy/ilyazar.plugin-control
-  && ! -e $XDG_STATE_HOME/omarchy/ilyazar.plugin-control
-  && ! -e $XDG_RUNTIME_DIR/omarchy-ilyazar.plugin-control ]]
+[[ ! -e $XDG_CONFIG_HOME/omarchy/the2dl.plugin-manager
+  && ! -e $XDG_CACHE_HOME/omarchy/the2dl.plugin-manager
+  && ! -e $XDG_STATE_HOME/omarchy/the2dl.plugin-manager
+  && ! -e $XDG_RUNTIME_DIR/omarchy-the2dl.plugin-manager ]]
 grep -Fq 'omarchy-launch-terminal' "$XDG_CONFIG_HOME/hypr/bindings.lua"
-if grep -Fq 'io.github.ilyazar.plugin-control' \
+if grep -Fq 'io.github.the2dl.plugin-manager' \
   "$XDG_CONFIG_HOME/hypr/bindings.lua"; then
   printf 'not ok - clean removal left the Plugin Control binding\n' >&2
   exit 1
@@ -739,7 +739,7 @@ jq -e '.ok == false and (.message | contains("failed"))' \
 wait_worker_release
 [[ $(grep -c '^restart shell$' "$MOCK_LOG" || true) == \
   "$restart_calls_before" ]]
-if find "$XDG_STATE_HOME/omarchy/ilyazar.plugin-control/worker" \
+if find "$XDG_STATE_HOME/omarchy/the2dl.plugin-manager/worker" \
   -name 'plugin-control-*' -o -name 'snapshot-*.json' | grep -q .; then
   printf 'not ok - failed action left worker staging files\n' >&2
   exit 1

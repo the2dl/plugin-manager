@@ -1,5 +1,5 @@
-readonly SELF_ID="io.github.ilyazar.plugin-control"
-readonly USER_DATA_ID="ilyazar.plugin-control"
+readonly SELF_ID="io.github.the2dl.plugin-manager"
+readonly USER_DATA_ID="the2dl.plugin-manager"
 json_error() {
   jq -cn --arg error "$1" '{ok:false,error:$error}'
 }

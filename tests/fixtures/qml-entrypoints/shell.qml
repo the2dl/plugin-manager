@@ -26,7 +26,7 @@ ShellRoot {
   function manifestData() {
     return {
       schemaVersion: 1,
-      id: "io.github.ilyazar.plugin-control",
+      id: "io.github.the2dl.plugin-manager",
       name: "Plugin Control",
       version: "test",
       kinds: ["service", "overlay", "bar-widget"],
@@ -66,7 +66,7 @@ ShellRoot {
   FileView {
     id: testConfigFile
     path: Quickshell.env("XDG_CONFIG_HOME")
-      + "/omarchy/ilyazar.plugin-control/channels.yaml"
+      + "/omarchy/the2dl.plugin-manager/channels.yaml"
     blockLoading: true
     blockWrites: true
     atomicWrites: true
@@ -228,7 +228,7 @@ ShellRoot {
         root.serviceObject.applyConfigStatus(hiddenConfigStatus, 0, 2)
         if (mockPluginRegistry.settingCalls !== 1
             || mockPluginRegistry.lastSettingId
-              !== "io.github.ilyazar.plugin-control"
+              !== "io.github.the2dl.plugin-manager"
             || mockPluginRegistry.lastSettingKey !== "trayIconHidden"
             || mockPluginRegistry.lastSettingValue !== true
             || root.serviceObject.backgroundDim !== true) {
@@ -1015,7 +1015,7 @@ ShellRoot {
           console.error("PLUGIN_CONTROL_LOAD_ERROR visible tray icon")
         barWidget.openPalette()
         if (mockShell.lastToggleId
-            !== "io.github.ilyazar.plugin-control"
+            !== "io.github.the2dl.plugin-manager"
             || mockShell.lastTogglePayload !== "{}") {
           console.error("PLUGIN_CONTROL_LOAD_ERROR bar-widget command")
         }

@@ -13,6 +13,7 @@
 # Exit status is 0 whenever the scan itself completed: a finding is a result,
 # not an error. Callers branch on summary.verdict.
 
+require "fileutils"
 require "json"
 require "open3"
 require "shellwords"
@@ -63,6 +64,7 @@ end
 plugin_dir = nil
 rules_files = []
 pretty = false
+diff_ref = nil
 
 args = ARGV.dup
 until args.empty?
@@ -76,6 +78,8 @@ until args.empty?
   when "--rules"
     file = args.shift or die("--rules needs a file")
     rules_files << file
+  when "--diff"
+    diff_ref = args.shift or die("--diff needs a git ref")
   when "--pretty" then pretty = true
   when "-h", "--help"
     puts <<~USAGE
@@ -83,6 +87,7 @@ until args.empty?
 
         --rules-dir DIR   also load every .yar/.yara under DIR (repeatable)
         --rules FILE      also load one rules file (repeatable)
+        --diff REF        only report findings on lines added since REF
         --pretty          indent the JSON
 
       Writes a JSON report to stdout. Exit 0 means the scan ran; read
@@ -221,7 +226,71 @@ provenance = {
   "dirty" => !git(plugin_dir, "status", "--porcelain").to_s.empty?
 }
 
+# --- diff scoping -------------------------------------------------------------
+
+# Reviewing an update, the question is not "is this plugin fine" but "is what
+# changed fine". Scanning concatenated diff text would throw away the file
+# attribution that comment- and test-demotion depend on, so instead the real
+# files are scanned and each finding is checked against the added-line ranges.
+def added_line_ranges(dir, ref)
+  out, status = Open3.capture2e("git", "-C", dir, "diff", "-U0", "#{ref}..HEAD")
+  return nil unless status.success?
+
+  ranges = Hash.new { |h, k| h[k] = [] }
+  file = nil
+  out.each_line do |raw_line|
+    line = raw_line.chomp
+    if (m = line.match(%r{\A\+\+\+ b/(.+)\z}))
+      file = m[1].strip
+    elsif file && (m = line.match(/\A@@ -\S+ \+(\d+)(?:,(\d+))? @@/))
+      start = m[1].to_i
+      count = (m[2] || "1").to_i
+      ranges[file] << (start...(start + count)) if count.positive?
+    end
+  end
+  ranges
+end
+
+# --- normalisation -----------------------------------------------------------
+
+# Every rule pattern is single-line, so `curl x \` + newline + `| sh` slips
+# past all of them -- a one-character evasion. Physical lines are joined into
+# logical ones before scanning, and a map carries offsets back to the real line
+# numbers so findings still point at the source. Borrowed from the approach in
+# ksb.plugin-guard's Scanner.js, which handles this properly.
+MAX_JOINED_LINES = 32
+
+def logical_lines(path)
+  raw = File.readlines(path)
+  out = []
+  map = []
+  i = 0
+  while i < raw.length
+    start = i
+    line = raw[i].chomp
+    joined = 1
+    while line.end_with?("\\") && joined < MAX_JOINED_LINES && i + 1 < raw.length
+      line = line[0..-2].rstrip + " " + raw[i + 1].chomp.lstrip
+      i += 1
+      joined += 1
+    end
+    out << line
+    map << start + 1
+    i += 1
+  end
+  [out.join("\n") + "\n", map]
+rescue StandardError
+  [File.binread(path), nil]
+end
+
 # --- scan --------------------------------------------------------------------
+
+diff_ranges = diff_ref ? added_line_ranges(plugin_dir, diff_ref) : nil
+die("could not diff against #{diff_ref}") if diff_ref && diff_ranges.nil?
+if diff_ranges
+  changed = diff_ranges.keys.map { |f| File.join(plugin_dir, f) }
+  scannable = scannable.select { |f| changed.include?(f) }
+end
 
 findings = []
 unless scannable.empty?
@@ -229,9 +298,21 @@ unless scannable.empty?
   # goes in via --scan-list rather than as trailing arguments (where files
   # after the first would be parsed as rules).
   require "tempfile"
+  require "tmpdir"
+  norm_dir = Dir.mktmpdir("plugin-audit-norm")
+  norm_to_real = {}
+  line_maps = {}
+  scannable.each_with_index do |real, idx|
+    text, map = logical_lines(real)
+    norm = File.join(norm_dir, format("%04d-%s", idx, File.basename(real)))
+    File.binwrite(norm, text)
+    norm_to_real[norm] = real
+    line_maps[norm] = map
+  end
+
   list = Tempfile.new(["plugin-audit-targets", ".txt"])
   begin
-    list.write(scannable.join("\n"))
+    list.write(norm_to_real.keys.join("\n"))
     list.flush
 
     rules_files.each do |rules_file|
@@ -254,8 +335,11 @@ unless scannable.empty?
           offset = m[1].to_i(16)
           meta = RULE_META[current_rule] || {}
           body = File.binread(current_file, offset)
-          line_no = body.count("\n") + 1
-          rel = relative(current_file, plugin_dir)
+          norm_line = body.count("\n") + 1
+          real_file = norm_to_real[current_file] || current_file
+          map = line_maps[current_file]
+          line_no = map && map[norm_line - 1] ? map[norm_line - 1] : norm_line
+          rel = relative(real_file, plugin_dir)
           declared = meta["severity"] || "medium"
 
           # A pattern inside a comment cannot execute. The most common false
@@ -264,12 +348,22 @@ unless scannable.empty?
           # explaining why it refuses to copy ~/.ssh/id_rsa. Demote rather than
           # drop, so a payload hiding in a string that looks like a comment is
           # still visible.
-          source_line = (File.readlines(current_file)[line_no - 1] || "").strip
+          source_line = (File.readlines(real_file)[line_no - 1] || "").strip
           in_comment = COMMENT_PREFIXES.any? { |pre| source_line.start_with?(pre) }
           in_test = rel.match?(TEST_PATH)
 
           severity = declared
           reasons = []
+
+          in_diff = true
+          if diff_ranges
+            in_diff = (diff_ranges[rel] || []).any? { |r| r.include?(line_no) }
+            unless in_diff
+              severity = "info"
+              reasons << "on a line that predates #{diff_ref[0, 12]}, so it was " \
+                         "already there when this plugin was last accepted"
+            end
+          end
 
           # Rule-specific refinement: yara finds the candidate, this decides
           # whether it means anything. Cheaper and far more accurate than
@@ -311,7 +405,8 @@ unless scannable.empty?
             "file" => rel,
             "line" => line_no,
             "match" => m[3][0, 160],
-            "source" => meta["source"]
+            "source" => meta["source"],
+            "in_diff" => in_diff
           }
         end
       end
@@ -319,6 +414,70 @@ unless scannable.empty?
   ensure
     list.close
     list.unlink
+    FileUtils.remove_entry(norm_dir) if norm_dir && File.directory?(norm_dir)
+  end
+end
+
+# --- shellcheck ---------------------------------------------------------------
+
+# A different question from the rules above: not "is this malicious" but "can
+# this be made to misbehave". shellcheck is a real shell parser, so it sees
+# seams the patterns structurally cannot. Only the codes that describe an
+# injection seam -- style noise would bury everything else.
+INJECTION_CODES = {
+  2086 => "unquoted expansion -- word splitting and globbing reach the command",
+  2046 => "unquoted command substitution -- its output is split into arguments",
+  2068 => "unquoted array expansion -- elements are re-split",
+  2048 => "unquoted $* -- arguments are re-split",
+  2294 => "eval on a variable -- whatever lands in it is executed"
+}.freeze
+# Untrusted input on this machine: notifications, clipboard, filenames,
+# compositor JSON, network responses. An unquoted expansion in a file that
+# never touches any of these is a robustness bug; one that does is a seam.
+EXTERNAL_INPUT = /notify-send|wl-paste|xclip|hyprctl[^\n]{0,40}-j|\bcurl\b|\bwget\b|jq[ \t]+-r|\$\(cat[ \t]/.freeze
+
+shell_files = scannable.select do |f|
+  %w[.sh .bash].include?(File.extname(f).downcase) ||
+    (File.extname(f).empty? && File.open(f, "rb") { |h| h.read(11).to_s } =~ /\A#!.*sh/)
+end
+
+shellcheck_ran = false
+unless shell_files.empty?
+  sc_out, sc_status = Open3.capture2e("shellcheck", "-f", "json",
+                                      "-i", INJECTION_CODES.keys.join(","),
+                                      *shell_files)
+  # shellcheck exits 1 when it has findings, which is the normal case.
+  if sc_status.exitstatus && sc_status.exitstatus < 2 || !sc_out.empty?
+    begin
+      shellcheck_ran = true
+      JSON.parse(sc_out).each do |issue|
+        code = issue["code"].to_i
+        detail = INJECTION_CODES[code] or next
+        file = issue["file"]
+        exploitable = File.read(file).match?(EXTERNAL_INPUT) rescue false
+        severity =
+          if code == 2294 then "high"
+          elsif exploitable then "medium"
+          else "low"
+          end
+        findings << {
+          "rule" => "injection_SC#{code}",
+          "severity" => severity,
+          "declared_severity" => severity,
+          "demoted_because" => nil,
+          "category" => "injection",
+          "why" => detail + (exploitable && code != 2294 ?
+            ". This file also reads notification, clipboard, filename or " \
+            "network data, so an attacker may control what lands here." : "."),
+          "file" => relative(file, plugin_dir),
+          "line" => issue["line"].to_i,
+          "match" => issue["message"].to_s[0, 160],
+          "source" => "shellcheck"
+        }
+      end
+    rescue JSON::ParserError
+      shellcheck_ran = false
+    end
   end
 end
 
@@ -380,6 +539,12 @@ if low_confidence.any?
                                "file(s) were pattern-matched but cannot be " \
                                "meaningfully reviewed this way." }
 end
+unless shellcheck_ran
+  limitations << { "id" => "no-shell-analysis",
+                   "detail" => "shellcheck did not run, so command-injection " \
+                               "seams in shell scripts were not examined. " \
+                               "Install it with: omarchy pkg add shellcheck" }
+end
 if binaries.any?
   limitations << { "id" => "shipped-binaries",
                    "detail" => "#{binaries.size} compiled file(s) shipped and " \
@@ -427,6 +592,9 @@ report = {
   },
   "limitations" => limitations,
   "rules" => rules_files.map { |f| relative(File.expand_path(f), SOURCE_ROOT) },
+  "scope" => diff_ref ? { "mode" => "diff", "since" => diff_ref,
+                          "changed_files" => (diff_ranges&.keys || []) }
+                      : { "mode" => "full-tree" },
   "findings" => grouped,
   "summary" => {
     "verdict" => verdict,

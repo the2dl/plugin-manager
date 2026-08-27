@@ -66,7 +66,11 @@ work="$cache_root/$(date +%Y%m%d-%H%M%S)-$$"
 mkdir -p "$work"
 
 report="$work/static-report.json"
-if ! "$SOURCE_ROOT/bin/plugin-audit" "$plugin_dir" --pretty >"$report"; then
+audit_args=("$plugin_dir" --pretty)
+# Scope the static pass to the same range as the review, so the report the
+# agent reads is about the change under review and not the whole plugin.
+[[ -n $diff_ref ]] && audit_args+=(--diff "$diff_ref")
+if ! "$SOURCE_ROOT/bin/plugin-audit" "${audit_args[@]}" >"$report"; then
   fail "static scan failed; run bin/plugin-audit directly to see why"
 fi
 

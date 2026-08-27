@@ -146,9 +146,12 @@ Rectangle {
       visible: root.warning.length > 0
       anchors.left: parent.left
       anchors.verticalCenter: parent.verticalCenter
-      text: Icons.glyph("warning")
+      // "Upstream changed" means an update is available, not a problem, so it
+      // takes the accent colour and an update glyph rather than a red warning.
+      text: root.warning === "Upstream changed"
+        ? Icons.glyph("update") : Icons.glyph("warning")
       textFormat: Text.PlainText
-      color: root.urgent
+      color: root.warning === "Upstream changed" ? root.accent : root.urgent
       opacity: root.selected ? 1 : 0.80
       font.family: Style.font.family
       font.pixelSize: Style.font.caption

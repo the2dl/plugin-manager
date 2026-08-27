@@ -113,7 +113,8 @@ FocusScope {
       value: String(value.sourceLabel || "Unknown")
         + (String(value.warning || "")
           ? "  -  " + String(value.warning) : ""),
-      tone: String(value.warning || "") ? "warn" : "" })
+      tone: value.warning === "Upstream changed" ? "update"
+        : (String(value.warning || "") ? "warn" : "") })
     if (value.installed === true)
       out.push({ key: "Checkout",
         value: "~/.config/omarchy/plugins/" + String(value.id || ""),
@@ -581,7 +582,9 @@ FocusScope {
               text: metaRow.modelData.value
               textFormat: Text.PlainText
               color: metaRow.modelData.tone === "warn"
-                ? root.warningColor : root.foreground
+                ? root.warningColor
+                : (metaRow.modelData.tone === "update"
+                  ? Color.accent : root.foreground)
               opacity: metaRow.modelData.tone === "dim" ? 0.60 : 0.92
               font.family: root.fontFamily
               font.pixelSize: Style.font.caption

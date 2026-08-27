@@ -18,7 +18,35 @@ done
 unset backend_module
 
 usage() {
-  json_error "usage: plugin-control <cached|refresh|check-updates|preview|ensure-config|config-status|status|action|ack|benchmark> ..."
+  json_error "usage: plugin-control <cached|refresh|check-updates|audit|preview|ensure-config|config-status|status|action|ack|benchmark> ..."
+}
+
+# audit_command <public-root> <plugin-dir> [diff-ref]
+# Runs bin/plugin-audit and passes its JSON straight through. Degrades to a
+# structured JSON error the UI can render, rather than failing the process,
+# when yara is missing or the target is not a plugin.
+audit_command() {
+  local root="$1" dir="$2" diff="${3:-}"
+  local auditor="$root/bin/plugin-audit"
+  if [[ ! -x $auditor ]]; then
+    json_error "security scanner not found in this Plugin Control checkout"
+    return 0
+  fi
+  if ! command -v yara >/dev/null 2>&1; then
+    printf '%s\n' '{"schema":1,"summary":{"verdict":"scan-unavailable","caveat":"yara is not installed, so no static scan ran. Install it with: omarchy pkg add yara"},"findings":[],"limitations":[{"id":"no-scanner","detail":"yara is not installed"}]}'
+    return 0
+  fi
+  if [[ ! -d $dir ]]; then
+    json_error "plugin directory not found: $dir"
+    return 0
+  fi
+  local args=("$dir")
+  [[ -n $diff ]] && args+=(--diff "$diff")
+  # plugin-audit exits 0 on a completed scan regardless of findings; a non-zero
+  # exit is a real failure, which we surface as JSON rather than raw stderr.
+  if ! "$auditor" "${args[@]}" 2>/dev/null; then
+    json_error "security scan failed"
+  fi
 }
 
 main() {
@@ -83,6 +111,13 @@ main() {
     check-updates)
       (( $# == 1 )) || { usage; return 2; }
       check_updates_command "$(source_root "$1")"
+      ;;
+    audit)
+      # Read-only static security scan of a plugin directory. Additive: never
+      # touches add/enable/remove. Emits the plugin-audit JSON (or a JSON error
+      # if the scanner or yara is unavailable) so the UI can gate on it.
+      (( $# >= 2 && $# <= 3 )) || { usage; return 2; }
+      audit_command "$(source_root "$1")" "$2" "${3:-}"
       ;;
     preview)
       (( $# == 4 )) || { usage; return 2; }

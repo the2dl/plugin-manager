@@ -18,6 +18,13 @@ require "json"
 require "open3"
 require "shellwords"
 
+# The backend runs with LC_ALL=C, which would make File.read default to
+# US-ASCII and raise on any UTF-8 plugin source. Force UTF-8 regardless of the
+# caller's locale, and scrub invalid bytes so a malformed file degrades to a
+# finding rather than a crash.
+Encoding.default_external = Encoding::UTF_8
+Encoding.default_internal = Encoding::UTF_8
+
 SOURCE_ROOT = File.expand_path("..", __dir__)
 DEFAULT_RULES = File.join(SOURCE_ROOT, "security", "omarchy-plugin.yar")
 

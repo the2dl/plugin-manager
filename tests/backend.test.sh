@@ -750,3 +750,22 @@ printf 'ok - failed add skips restart and cleans worker staging\n'
 helper ack "$(jq -r '.actionId' <<<"$status")" \
   | jq -e '.acknowledged == true' >/dev/null
 printf 'ok - completed action acknowledgement\n'
+
+# --- audit verb (read-only static scan) --------------------------------------
+audit_out="$("$ROOT/bin/plugin-control" audit "$ROOT" "$ROOT" 2>/dev/null)"
+echo "$audit_out" | jq -e '.summary.verdict' >/dev/null \
+  || { printf 'not ok - audit verb returns a verdict\n' >&2; exit 1; }
+# missing directory degrades to a JSON error, never a crash
+miss_out="$("$ROOT/bin/plugin-control" audit "$ROOT" "$ROOT/does-not-exist" 2>/dev/null)"
+echo "$miss_out" | jq -e '.ok == false' >/dev/null \
+  || { printf 'not ok - audit verb reports missing dir as JSON\n' >&2; exit 1; }
+# UTF-8 source must not crash under a C locale (the LC_ALL=C regression)
+utf8_dir="$(mktemp -d)"; trap 'rm -rf "$utf8_dir"' EXIT
+cat > "$utf8_dir/manifest.json" <<'J'
+{"schemaVersion":1,"id":"test.utf8","name":"Ünïcödé — test","version":"1.0.0","kinds":["service"],"entryPoints":{"service":"Service.qml"}}
+J
+printf 'import QtQuick\n// em—dash and café\nItem {}\n' > "$utf8_dir/Service.qml"
+utf8_out="$(LC_ALL=C "$ROOT/bin/plugin-control" audit "$ROOT" "$utf8_dir" 2>/dev/null)"
+echo "$utf8_out" | jq -e '.summary.verdict' >/dev/null \
+  || { printf 'not ok - audit verb handles UTF-8 source under LC_ALL=C\n' >&2; exit 1; }
+printf 'ok - audit verb: verdict, missing-dir JSON, UTF-8 under C locale\n'

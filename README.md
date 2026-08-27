@@ -5,7 +5,7 @@ scanner**. Browse, add, enable, disable, update and remove shell plugins from a
 table UI — and see a static + optional AI security review of a plugin's code
 *before* you enable or update it.
 
-![Plugin Manager — the plugin table with a security review](docs/security-review.png)
+![Plugin Manager — the plugin table](docs/browse.png)
 
 Omarchy plugins are unsandboxed QML loaded into your long-lived `omarchy-shell`
 process: they run with your full permissions, at login, for as long as they
@@ -21,6 +21,9 @@ runs.
   table (no giant modal): metadata, actions as icons, and the security review.
 - **Security review** — every time you open a plugin's detail, Plugin Manager statically
   scans its code and shows a verdict:
+
+  ![A flagged plugin's security review](docs/security-review.png)
+
   - **No static findings** — nothing matched (not a clearance; see the caveat).
   - **Worth a look** — medium findings to eyeball.
   - **Review required** — high findings; enabling/updating asks you to type the

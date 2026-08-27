@@ -1520,7 +1520,7 @@ Item {
     FocusScope {
       id: updateAllLayer
       visible: root.updateAllOpen
-      anchors.fill: parent
+      anchors.fill: card
       z: 90
 
       readonly property var report: root.service ? root.service.updatesReport : ({})
@@ -1534,8 +1534,9 @@ Item {
 
       Rectangle {
         anchors.fill: parent
+        radius: Style.cornerRadius
         color: root.background
-        opacity: 0.97
+        opacity: 0.98
       }
 
       MouseArea {

@@ -1,5 +1,6 @@
 import QtQuick
 import qs.Commons
+import qs.Ui
 import "Icons.js" as Icons
 
 // One table row. Columns are fixed-width and anchored from the right so the
@@ -47,6 +48,21 @@ Rectangle {
     return successColor
   }
   readonly property color bodyColor: selected ? selectedText : foreground
+  readonly property string stateTooltip: {
+    if (updateRow) return "Update available — a newer commit can be pulled"
+    if (stateLabel === "Disabled") return "Installed but disabled"
+    if (stateLabel === "Built-in") return "Built-in Omarchy plugin"
+    if (stateLabel === "Added") return "Installed and enabled"
+    if (stateLabel === "Available") return "Not installed — available to add"
+    return "Marketplace listing"
+  }
+  readonly property string warningTooltip: {
+    if (warning === "Upstream changed")
+      return "Upstream changed — the marketplace validated an older commit "
+        + "than the repo's current HEAD, so installing or updating pulls "
+        + "newer code the marketplace has not reviewed."
+    return warning
+  }
 
   signal hovered()
   signal activated()
@@ -128,6 +144,20 @@ Rectangle {
     height: width
     radius: width
     color: root.dotColor
+
+    // A slightly larger, transparent hover target so the 7px dot is easy to
+    // point at; HoverHandler leaves clicks and row selection untouched.
+    Item {
+      anchors.centerIn: parent
+      width: Style.space(18)
+      height: root.rowHeight
+      HoverHandler { id: dotHover }
+      PanelToolTip {
+        visible: dotHover.hovered && root.pointerInteractive
+        text: root.stateTooltip
+        fontFamily: Style.font.menuFamily
+      }
+    }
   }
 
   // Most catalog records carry some validation warning, so it rides as a
@@ -157,6 +187,16 @@ Rectangle {
       opacity: root.selected ? 1 : 0.80
       font.family: Style.font.family
       font.pixelSize: Style.font.caption
+
+      HoverHandler { id: warnHover }
+      PanelToolTip {
+        visible: warnHover.hovered && root.pointerInteractive
+          && root.warning.length > 0
+        text: root.warningTooltip
+        panelBorder: root.warning === "Upstream changed"
+          ? Util.alpha(root.foreground, 0.5) : root.urgent
+        fontFamily: Style.font.menuFamily
+      }
     }
 
     Text {

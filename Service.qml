@@ -629,7 +629,7 @@ Item {
       catch (e) {}
       root.updatingAll = false
       root.updateAllFinished(summary)
-      root.requestRefresh(true)   // rebuild the snapshot so updated plugins clear
+      root.loadCached()   // update-all already rebuilt the snapshot; reload it
     }
   }
 

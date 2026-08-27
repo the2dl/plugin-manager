@@ -156,18 +156,43 @@ audit_updates_command() {
 }
 
 # update_all_command <public-root> <id...>
-# Update each id in turn, then let the shell rebuild its snapshot.
+# Update each id in turn. Because this drives `omarchy plugin update` directly
+# rather than plugin-control's own action, it must clear plugin-control's
+# update state for the plugins it updated -- otherwise they keep showing a
+# pending update. Then rebuild the snapshot so the shell sees them as current.
 update_all_command() {
   local root="$1"; shift
   init_paths
   local results="[]" id
+  local ok_ids=()
   for id in "$@"; do
     if omarchy plugin update "$id" --yes >/dev/null 2>&1; then
       results="$(jq -c --arg id "$id" '. + [{id:$id, ok:true}]' <<<"$results")"
+      ok_ids+=("$id")
     else
       results="$(jq -c --arg id "$id" '. + [{id:$id, ok:false}]' <<<"$results")"
     fi
   done
+
+  if (( ${#ok_ids[@]} )) && [[ -f $UPDATE_STATE && ! -L $UPDATE_STATE ]]; then
+    local ids_json tmp
+    ids_json="$(printf '%s\n' "${ok_ids[@]}" | jq -R . | jq -cs .)"
+    tmp="$(mktemp "${UPDATE_STATE}.XXXXXX")"
+    if jq --argjson ids "$ids_json" --arg now "$(utc_now)" '
+        .records = ((.records // []) | map(
+          if (.id as $i | $ids | index($i)) then
+            .status = "current" | .updateAvailable = false | .reason = ""
+            | .localCommit = (.remoteCommit // .localCommit)
+            | .checkedAt = $now
+          else . end))
+      ' "$UPDATE_STATE" > "$tmp" 2>/dev/null; then
+      mv -f "$tmp" "$UPDATE_STATE"
+    else
+      rm -f "$tmp"
+    fi
+  fi
+
+  build_snapshot "$root" >/dev/null 2>&1 || true
   omarchy-shell -q shell rescanPlugins >/dev/null 2>&1 || true
   jq -cn --argjson r "$results" '{
     results: $r,

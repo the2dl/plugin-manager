@@ -27,6 +27,7 @@ Item {
   property var filterCounts: ({})
   property int selectedIndex: 0
   property var filteredRecords: []
+  readonly property int pageSize: 80
   property var selectedRecord: null
   property string pendingOperation: "browse"
   property string pendingSnapshotId: ""
@@ -249,7 +250,7 @@ Item {
     ? leftStatusOpacity : rightStatusOpacity
   readonly property bool stripStatusAcknowledgeable: service
     && service.actionState && service.actionState.acknowledged === false
-  readonly property string stripHintText: displayModel.count > 0
+  readonly property string stripHintText: filteredRecords.length > 0
     ? "Select a plugin for its actions" : ""
   readonly property int pendingUpdateCount: {
     var numeric = Number(filterCounts ? filterCounts["updates"] : 0)
@@ -386,13 +387,33 @@ Item {
     filteredRecords = result.results
     displayModel.clear()
     spaceActivatesSelection = false
-    for (var i = 0; i < filteredRecords.length; i++) {
-      displayModel.append(PaletteViewModel.displayRecord(filteredRecords[i]))
-    }
-    selectedIndex = displayModel.count > 0
-      ? Math.max(0, Math.min(selectedIndex, displayModel.count - 1)) : 0
+    appendPage(pageSize)
+    selectedIndex = filteredRecords.length > 0
+      ? Math.max(0, Math.min(selectedIndex, filteredRecords.length - 1)) : 0
+    ensureRendered(selectedIndex)
     if (service) service.recordFilterDuration(Date.now() - filterStartedAt)
     Qt.callLater(positionSelection)
+  }
+
+  // Render the next chunk of the already-scored result list. Only the rows a
+  // viewer actually reaches get built, so a 1500-plugin catalog costs one page
+  // per rebuild instead of 1500 model appends.
+  function appendPage(count) {
+    var start = displayModel.count
+    var end = Math.min(filteredRecords.length, start + Math.max(1, count))
+    for (var i = start; i < end; i++)
+      displayModel.append(PaletteViewModel.displayRecord(filteredRecords[i]))
+  }
+
+  function ensureRendered(index) {
+    if (index < 0) return
+    while (displayModel.count <= index
+        && displayModel.count < filteredRecords.length)
+      appendPage(pageSize)
+  }
+
+  function maybeLoadMore() {
+    if (displayModel.count < filteredRecords.length) appendPage(pageSize)
   }
 
   function positionSelection() {
@@ -401,8 +422,9 @@ Item {
   }
 
   function select(index, byKeyboard) {
-    if (displayModel.count === 0) return
-    selectedIndex = Math.max(0, Math.min(index, displayModel.count - 1))
+    if (filteredRecords.length === 0) return
+    selectedIndex = Math.max(0, Math.min(index, filteredRecords.length - 1))
+    ensureRendered(selectedIndex)
     spaceActivatesSelection = byKeyboard === true
     positionSelection()
   }
@@ -884,7 +906,7 @@ Item {
     } else if (event.key === Qt.Key_Home) {
       select(0, true)
     } else if (event.key === Qt.Key_End) {
-      select(displayModel.count - 1, true)
+      select(filteredRecords.length - 1, true)
     } else if (!control && !alt && event.key === Qt.Key_Tab) {
       if (!startTypedUpdateCommand()) completeCommand(selectedIndex)
     } else if (event.key === Qt.Key_Space) {
@@ -1382,11 +1404,19 @@ Item {
               id: resultList
               anchors.fill: parent
               anchors.topMargin: Style.space(2)
-              visible: !root.detailOpen && displayModel.count > 0
+              visible: !root.detailOpen && filteredRecords.length > 0
               model: displayModel
               clip: true
               boundsBehavior: Flickable.StopAtBounds
               spacing: root.rowSpacing
+              cacheBuffer: root.rowHeight * 6
+              // Load-on-scroll: pull the next page in before the viewer reaches
+              // the end, so scrolling stays continuous through the full list.
+              onContentYChanged: {
+                if (contentHeight > 0
+                    && contentY + height > contentHeight - root.rowHeight * 8)
+                  root.maybeLoadMore()
+              }
               delegate: PaletteResultRow {
                 width: ListView.view.width
                 selected: index === root.selectedIndex

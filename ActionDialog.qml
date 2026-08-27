@@ -595,47 +595,97 @@ FocusScope {
       }
 
       // ---- Security scan ------------------------------------------------
+      Item { width: 1; height: Style.space(3) }   // breathing room above
+
       Rectangle {
+        id: securityBox
         visible: !root.readOnly
+        readonly property int pad: Style.spacing.md
         width: parent.width
-        height: Math.max(root.securityScanning ? Style.space(30)
-          : Style.space(24), securityCol.implicitHeight + Style.spacing.sm * 2)
+        height: securityCol.implicitHeight + pad * 2
         radius: Style.cornerRadius
-        color: Util.alpha(root.securityColor, 0.08)
-        border.width: Math.max(1, Style.space(1))
-        border.color: Util.alpha(root.securityColor, 0.42)
+        color: Util.alpha(root.securityColor,
+          root.securityBlocking ? 0.14 : 0.09)
+        border.width: Math.max(1, Style.space(root.securityBlocking ? 2 : 1))
+        border.color: Util.alpha(root.securityColor,
+          root.securityBlocking ? 0.85 : 0.45)
+
+        // A coloured spine so the block reads as one unit at a glance.
+        Rectangle {
+          anchors.left: parent.left
+          anchors.top: parent.top
+          anchors.bottom: parent.bottom
+          width: Style.space(root.securityBlocking ? 3 : 2)
+          radius: width
+          color: root.securityColor
+          opacity: 0.9
+        }
 
         Column {
           id: securityCol
           anchors.left: parent.left
           anchors.right: parent.right
-          anchors.verticalCenter: parent.verticalCenter
-          anchors.leftMargin: Style.spacing.sm
-          anchors.rightMargin: Style.spacing.sm
-          spacing: Style.space(3)
+          anchors.top: parent.top
+          anchors.leftMargin: securityBox.pad + Style.spacing.xs
+          anchors.rightMargin: securityBox.pad
+          anchors.topMargin: securityBox.pad
+          spacing: Style.spacing.sm
 
-          Row {
+          // header: a filled verdict badge + finding count, deep-scan on the right
+          Item {
             width: parent.width
-            spacing: Style.spacing.sm
+            height: Style.space(20)
+
+            Rectangle {
+              id: verdictBadge
+              anchors.left: parent.left
+              anchors.verticalCenter: parent.verticalCenter
+              width: verdictRow.implicitWidth + Style.spacing.md
+              height: Style.space(20)
+              radius: Style.cornerRadius
+              color: root.securityColor
+              opacity: root.securityScanning ? 0.55 : 1
+
+              Row {
+                id: verdictRow
+                anchors.centerIn: parent
+                spacing: Style.spacing.xs
+
+                Text {
+                  anchors.verticalCenter: parent.verticalCenter
+                  text: root.securityScanning ? "\uf252" : "\uf132"
+                  textFormat: Text.PlainText
+                  color: root.background
+                  font.family: Style.font.family
+                  font.pixelSize: Style.font.caption
+                }
+                Text {
+                  anchors.verticalCenter: parent.verticalCenter
+                  text: "SECURITY"
+                  textFormat: Text.PlainText
+                  color: root.background
+                  font.family: root.fontFamily
+                  font.pixelSize: Style.font.caption
+                  font.bold: true
+                  font.letterSpacing: Style.spaceReal(1)
+                }
+              }
+            }
 
             Text {
-              text: root.securityScanning ? "\uf252" : "\uf132"
-              textFormat: Text.PlainText
-              color: root.securityColor
-              font.family: Style.font.family
-              font.pixelSize: Style.font.caption
-            }
-            Text {
-              id: securityHeadline
-              width: parent.width - x - deepScanButton.width - Style.spacing.sm
-              text: "Security  ·  " + root.securityLabel
+              anchors.left: verdictBadge.right
+              anchors.leftMargin: Style.spacing.sm
+              anchors.right: deepScanButton.left
+              anchors.rightMargin: Style.spacing.sm
+              anchors.verticalCenter: parent.verticalCenter
+              text: root.securityLabel
                 + (root.securityScanning || root.securityFindings.length === 0
                   ? "" : "  ·  " + root.securityFindings.length + " finding"
                     + (root.securityFindings.length === 1 ? "" : "s"))
               textFormat: Text.PlainText
               color: root.securityColor
               font.family: root.fontFamily
-              font.pixelSize: Style.font.caption
+              font.pixelSize: Style.font.subtitle
               font.bold: true
               elide: Text.ElideRight
             }
@@ -648,14 +698,15 @@ FocusScope {
                 && root.securityVerdict !== "scan-unavailable"
                 && root.plugin
                 && (root.plugin.installed === true || root.plugin.builtIn === true)
+              anchors.right: parent.right
               anchors.verticalCenter: parent.verticalCenter
               width: visible ? deepScanText.implicitWidth + Style.spacing.md : 0
-              height: Style.space(18)
+              height: Style.space(20)
               radius: Style.cornerRadius
               color: Util.alpha(root.marketplaceOrange,
-                deepScanHover.containsMouse ? 0.20 : 0.10)
+                deepScanHover.containsMouse ? 0.22 : 0.12)
               border.width: Math.max(1, Style.space(1))
-              border.color: Util.alpha(root.marketplaceOrange, 0.55)
+              border.color: Util.alpha(root.marketplaceOrange, 0.60)
 
               MouseArea {
                 id: deepScanHover
@@ -684,23 +735,49 @@ FocusScope {
             }
           }
 
+          // findings, each with a filled severity tag and room to breathe
           Repeater {
             model: root.securityScanning ? [] : root.securityFindings
 
-            delegate: Text {
+            delegate: Row {
               required property var modelData
               width: securityCol.width
-              text: "[" + modelData.severity + "] " + (modelData.why
-                || modelData.rule)
-              textFormat: Text.PlainText
-              color: modelData.severity === "high"
-                ? root.warningColor : root.foreground
-              opacity: modelData.severity === "high" ? 1 : 0.80
-              font.family: root.fontFamily
-              font.pixelSize: Style.font.caption
-              wrapMode: Text.Wrap
-              maximumLineCount: 2
-              elide: Text.ElideRight
+              spacing: Style.spacing.sm
+
+              Rectangle {
+                anchors.top: parent.top
+                anchors.topMargin: Style.space(1)
+                width: Style.space(34)
+                height: Style.space(15)
+                radius: Style.space(3)
+                color: modelData.severity === "high"
+                  ? root.warningColor
+                  : (modelData.severity === "medium"
+                    ? root.marketplaceYellow : Util.alpha(root.foreground, 0.30))
+                Text {
+                  anchors.centerIn: parent
+                  text: modelData.severity === "high" ? "HIGH"
+                    : (modelData.severity === "medium" ? "MED" : "LOW")
+                  textFormat: Text.PlainText
+                  color: root.background
+                  font.family: root.fontFamily
+                  font.pixelSize: Style.font.caption
+                  font.bold: true
+                }
+              }
+
+              Text {
+                width: parent.width - x
+                text: modelData.why || modelData.rule
+                textFormat: Text.PlainText
+                color: root.foreground
+                opacity: modelData.severity === "high" ? 1 : 0.82
+                font.family: root.fontFamily
+                font.pixelSize: Style.font.caption
+                wrapMode: Text.Wrap
+                maximumLineCount: 3
+                elide: Text.ElideRight
+              }
             }
           }
 
@@ -708,6 +785,7 @@ FocusScope {
             visible: !root.securityScanning
               && String(root.securitySummary.caveat || "").length > 0
             width: parent.width
+            topPadding: Style.space(2)
             text: String(root.securitySummary.caveat || "")
             textFormat: Text.PlainText
             color: root.foreground
@@ -721,6 +799,7 @@ FocusScope {
         }
       }
 
+      Item { width: 1; height: Style.space(3) }   // breathing room below
 
       Flow {
         id: badgeFlow

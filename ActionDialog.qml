@@ -20,6 +20,12 @@ FocusScope {
   property string previewDetailSource: ""
   property int selectedChoice: 0
   property string helpText: ""
+  property var securityReport: ({})
+  property bool securityScanning: false
+  // A mutating action the user chose that is waiting on the review-required
+  // gate: they must type the operation name to confirm they have looked.
+  property string gateOperation: ""
+  property string gateInput: ""
   property color background: Color.menu.background
   property color foreground: Color.menu.text
   property color selectedBackground: Color.menu.selectedBackground
@@ -31,6 +37,31 @@ FocusScope {
   property color marketplaceYellow: Color.accent
   property color marketplaceRed: Color.urgent
 
+  readonly property var securitySummary: securityReport
+    && securityReport.summary ? securityReport.summary : ({})
+  readonly property string securityVerdict: String(securitySummary.verdict || "")
+  readonly property var securityFindings: {
+    var out = []
+    var fs = securityReport && securityReport.findings ? securityReport.findings : []
+    for (var i = 0; i < fs.length; i++)
+      if (fs[i] && fs[i].severity !== "info") out.push(fs[i])
+    return out
+  }
+  readonly property bool securityBlocking: securityVerdict === "review-required"
+  readonly property color securityColor: securityVerdict === "review-required"
+    ? warningColor
+    : (securityVerdict === "review-suggested" ? marketplaceYellow
+      : (securityVerdict === "scan-unavailable" || securityVerdict === "scan-error"
+        ? Color.muted : marketplaceGreen))
+  readonly property string securityLabel: {
+    if (securityScanning) return "Scanning plugin…"
+    if (securityVerdict === "review-required") return "Review required"
+    if (securityVerdict === "review-suggested") return "Worth a look"
+    if (securityVerdict === "no-static-findings") return "No static findings"
+    if (securityVerdict === "scan-unavailable") return "Scan unavailable"
+    if (securityVerdict === "scan-error") return "Scan error"
+    return ""
+  }
   readonly property var actions: PaletteViewModel.actionOptions(plugin, readOnly)
   readonly property var selectedAction: selectedChoice >= 0
     && selectedChoice < actions.length ? actions[selectedChoice] : null
@@ -164,6 +195,8 @@ FocusScope {
   function openDialog() {
     selectedChoice = 0
     helpText = ""
+    gateOperation = ""
+    gateInput = ""
     helpDelay.stop()
     contentFlick.contentY = 0
     opened = true
@@ -172,6 +205,8 @@ FocusScope {
   function closeDialog() {
     helpDelay.stop()
     helpText = ""
+    gateOperation = ""
+    gateInput = ""
     opened = false
   }
 
@@ -235,7 +270,24 @@ FocusScope {
       canceled()
       return
     }
+    // Actions that cause code to load or run pass through the review-required
+    // gate. disable/remove reduce exposure, so they are never gated.
+    var mutating = ["add", "enable", "update"].indexOf(String(action.operation)) >= 0
+    if (mutating && securityBlocking && gateOperation !== String(action.operation)) {
+      gateOperation = String(action.operation)
+      gateInput = ""
+      return
+    }
+    if (mutating && gateOperation === String(action.operation)
+        && gateInput.trim().toLowerCase() !== String(action.operation)) {
+      return   // gate open but the typed confirmation does not match yet
+    }
     if (!busy) actionRequested(String(action.operation))
+  }
+
+  function clearGate() {
+    gateOperation = ""
+    gateInput = ""
   }
 
   function handleKey(event) {
@@ -537,6 +589,90 @@ FocusScope {
           }
         }
       }
+
+      // ---- Security scan ------------------------------------------------
+      Rectangle {
+        visible: !root.readOnly
+        width: parent.width
+        height: Math.max(root.securityScanning ? Style.space(30)
+          : Style.space(24), securityCol.implicitHeight + Style.spacing.sm * 2)
+        radius: Style.cornerRadius
+        color: Util.alpha(root.securityColor, 0.08)
+        border.width: Math.max(1, Style.space(1))
+        border.color: Util.alpha(root.securityColor, 0.42)
+
+        Column {
+          id: securityCol
+          anchors.left: parent.left
+          anchors.right: parent.right
+          anchors.verticalCenter: parent.verticalCenter
+          anchors.leftMargin: Style.spacing.sm
+          anchors.rightMargin: Style.spacing.sm
+          spacing: Style.space(3)
+
+          Row {
+            width: parent.width
+            spacing: Style.spacing.sm
+
+            Text {
+              text: root.securityScanning ? "\uf252" : "\uf132"
+              textFormat: Text.PlainText
+              color: root.securityColor
+              font.family: Style.font.family
+              font.pixelSize: Style.font.caption
+            }
+            Text {
+              width: parent.width - x
+              text: "Security  ·  " + root.securityLabel
+                + (root.securityScanning || root.securityFindings.length === 0
+                  ? "" : "  ·  " + root.securityFindings.length + " finding"
+                    + (root.securityFindings.length === 1 ? "" : "s"))
+              textFormat: Text.PlainText
+              color: root.securityColor
+              font.family: root.fontFamily
+              font.pixelSize: Style.font.caption
+              font.bold: true
+              elide: Text.ElideRight
+            }
+          }
+
+          Repeater {
+            model: root.securityScanning ? [] : root.securityFindings
+
+            delegate: Text {
+              required property var modelData
+              width: securityCol.width
+              text: "[" + modelData.severity + "] " + (modelData.why
+                || modelData.rule)
+              textFormat: Text.PlainText
+              color: modelData.severity === "high"
+                ? root.warningColor : root.foreground
+              opacity: modelData.severity === "high" ? 1 : 0.80
+              font.family: root.fontFamily
+              font.pixelSize: Style.font.caption
+              wrapMode: Text.Wrap
+              maximumLineCount: 2
+              elide: Text.ElideRight
+            }
+          }
+
+          Text {
+            visible: !root.securityScanning
+              && String(root.securitySummary.caveat || "").length > 0
+            width: parent.width
+            text: String(root.securitySummary.caveat || "")
+            textFormat: Text.PlainText
+            color: root.foreground
+            opacity: 0.55
+            font.family: root.fontFamily
+            font.pixelSize: Style.font.caption
+            wrapMode: Text.Wrap
+            maximumLineCount: 3
+            elide: Text.ElideRight
+          }
+        }
+      }
+
 
       Flow {
         id: badgeFlow
@@ -874,6 +1010,7 @@ FocusScope {
       }
 
       Text {
+        visible: root.gateOperation === ""
         width: parent.width
         text: root.busy ? "Working..."
           : root.actionCaption(root.selectedAction)
@@ -885,6 +1022,61 @@ FocusScope {
         font.family: root.fontFamily
         font.pixelSize: Style.font.bodySmall
         elide: Text.ElideRight
+      }
+
+      // review-required gate: the action only fires once the operation name is
+      // typed. This IS the override -- informed, never a hard block.
+      Row {
+        visible: root.gateOperation !== ""
+        width: parent.width
+        spacing: Style.spacing.sm
+
+        Text {
+          anchors.verticalCenter: parent.verticalCenter
+          text: "Type \u201c" + root.gateOperation + "\u201d to confirm:"
+          textFormat: Text.PlainText
+          color: root.warningColor
+          font.family: root.fontFamily
+          font.pixelSize: Style.font.bodySmall
+        }
+
+        Rectangle {
+          anchors.verticalCenter: parent.verticalCenter
+          width: Style.space(120)
+          height: Style.space(24)
+          radius: Style.cornerRadius
+          color: Util.alpha(root.foreground, 0.06)
+          border.width: Math.max(1, Style.space(1))
+          border.color: gateField.text.trim().toLowerCase() === root.gateOperation
+            ? root.marketplaceGreen : Util.alpha(root.foreground, 0.20)
+
+          TextInput {
+            id: gateField
+            anchors.fill: parent
+            anchors.leftMargin: Style.spacing.sm
+            anchors.rightMargin: Style.spacing.sm
+            verticalAlignment: TextInput.AlignVCenter
+            clip: true
+            color: root.foreground
+            font.family: root.fontFamily
+            font.pixelSize: Style.font.bodySmall
+            focus: root.gateOperation !== ""
+            onTextChanged: root.gateInput = text
+            Keys.onReturnPressed: root.choose()
+            Keys.onEnterPressed: root.choose()
+            Keys.onEscapePressed: root.clearGate()
+          }
+        }
+
+        Text {
+          anchors.verticalCenter: parent.verticalCenter
+          text: "Enter to proceed · Esc to cancel"
+          textFormat: Text.PlainText
+          color: root.foreground
+          opacity: 0.45
+          font.family: root.fontFamily
+          font.pixelSize: Style.font.caption
+        }
       }
     }
   }

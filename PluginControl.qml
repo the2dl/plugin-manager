@@ -466,6 +466,7 @@ Item {
   function openDialogFor(record, readOnly) {
     if (!record || !record.id || record.commandCompletion) return false
     selectedRecord = JSON.parse(JSON.stringify(record))
+    if (service) service.requestAudit(selectedRecord)
     pendingOperation = "browse"
     pendingSnapshotId = readOnly === true ? ""
       : (service && service.snapshot
@@ -1310,6 +1311,14 @@ Item {
               }
               plugin: root.selectedRecord
               selfId: root.pluginId
+              securityReport: root.service
+                && root.service.auditForId === String(root.selectedRecord
+                  && root.selectedRecord.id || "")
+                ? root.service.auditState : ({})
+              securityScanning: root.service
+                && root.service.auditing === true
+                && root.service.auditForId === String(root.selectedRecord
+                  && root.selectedRecord.id || "")
               busy: root.service ? root.service.actionRunning : false
               installInTerminal: root.installInTerminal
               background: root.background

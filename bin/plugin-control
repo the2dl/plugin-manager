@@ -18,7 +18,7 @@ done
 unset backend_module
 
 usage() {
-  json_error "usage: plugin-control <cached|refresh|check-updates|audit|preview|ensure-config|config-status|status|action|ack|benchmark> ..."
+  json_error "usage: plugin-control <cached|refresh|check-updates|audit|audit-remote|preview|ensure-config|config-status|status|action|ack|benchmark> ..."
 }
 
 # audit_command <public-root> <plugin-dir> [diff-ref]
@@ -47,6 +47,37 @@ audit_command() {
   if ! "$auditor" "${args[@]}" 2>/dev/null; then
     json_error "security scan failed"
   fi
+}
+
+# audit_remote_command <public-root> <repo-url> [commit]
+# Shallow-clones an untrusted repo to a temp dir with hooks and symlinks
+# disabled, scans it, and removes it. The clone is never executed and never
+# installed -- it exists only to be read by plugin-audit.
+audit_remote_command() {
+  local root="$1" repo="$2" commit="${3:-}"
+  if ! command -v yara >/dev/null 2>&1; then
+    printf '%s\n' '{"schema":1,"summary":{"verdict":"scan-unavailable","caveat":"yara is not installed, so no static scan ran. Install it with: omarchy pkg add yara"},"findings":[],"limitations":[{"id":"no-scanner","detail":"yara is not installed"}]}'
+    return 0
+  fi
+  # Reuse Omarchy's own URL guard so a hostile URL cannot run a git transport
+  # helper before we ever clone it.
+  if command -v omarchy-git-url-check >/dev/null 2>&1; then
+    omarchy-git-url-check "$repo" >/dev/null 2>&1 || { json_error "refused suspicious repository URL"; return 0; }
+  fi
+  local tmp
+  tmp="$(mktemp -d "${TMPDIR:-/tmp}/plugin-control-scan.XXXXXX")" || { json_error "could not create scan workspace"; return 0; }
+  # Best-effort cleanup even on failure.
+  trap 'rm -rf -- "$tmp"' RETURN
+  if ! GIT_TERMINAL_PROMPT=0 GIT_ASKPASS=true git \
+      -c core.hooksPath=/dev/null -c core.symlinks=false \
+      -c protocol.ext.allow=never \
+      clone --quiet --depth 1 --single-branch --no-tags -- "$repo" "$tmp/src" 2>/dev/null; then
+    json_error "could not clone $repo for scanning"
+    return 0
+  fi
+  [[ -n $commit ]] && git -C "$tmp/src" fetch --quiet --depth 1 origin "$commit" 2>/dev/null \
+    && git -C "$tmp/src" checkout --quiet "$commit" 2>/dev/null || true
+  audit_command "$root" "$tmp/src" ""
 }
 
 main() {
@@ -118,6 +149,13 @@ main() {
       # if the scanner or yara is unavailable) so the UI can gate on it.
       (( $# >= 2 && $# <= 3 )) || { usage; return 2; }
       audit_command "$(source_root "$1")" "$2" "${3:-}"
+      ;;
+    audit-remote)
+      # Pre-flight scan of a plugin that is not installed yet: clone it shallow
+      # to a throwaway dir, scan, discard. Nothing is enabled or kept. Lets the
+      # UI show findings before the real `omarchy plugin add` runs.
+      (( $# >= 2 && $# <= 3 )) || { usage; return 2; }
+      audit_remote_command "$(source_root "$1")" "$2" "${3:-}"
       ;;
     preview)
       (( $# == 4 )) || { usage; return 2; }

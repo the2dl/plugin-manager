@@ -25,6 +25,11 @@ Item {
   property var previewState: ({})
   property var previewQueuedRecord: null
   property bool actionStarting: false
+  property var auditState: ({})
+  property bool auditing: false
+  property string auditForId: ""
+  readonly property string pluginsRoot: (Quickshell.env("XDG_CONFIG_HOME")
+    || Quickshell.env("HOME") + "/.config") + "/omarchy/plugins"
   property bool animationsEnabled: true
   property bool backgroundDim: false
   property string lastError: ""
@@ -92,6 +97,7 @@ Item {
   }
 
   signal actionFinished(var state)
+  signal auditReady(string pluginId, var report)
 
   function parseJson(raw, fallback) {
     try { return JSON.parse(String(raw || "")) } catch (error) { return fallback }
@@ -341,6 +347,32 @@ Item {
     }
   }
 
+  // Read-only pre-flight scan. Installed plugins scan their on-disk checkout;
+  // an available plugin gets a throwaway shallow clone scanned and discarded.
+  // Never enables or installs anything -- purely advisory input to the UI gate.
+  function requestAudit(record) {
+    if (!helperPath || !record || auditProcess.running) return false
+    var id = String(record.id || "")
+    if (!id) return false
+    auditForId = id
+    auditing = true
+    auditState = ({})
+    auditProcess.output = ""
+    auditProcess.pluginId = id
+    if (record.installed === true || record.builtIn === true) {
+      auditProcess.command = [helperPath, "audit", sourceDir,
+        pluginsRoot + "/" + id]
+    } else {
+      var repo = String(record.repository || "")
+      if (!repo) { auditing = false; auditForId = ""; return false }
+      var cmd = [helperPath, "audit-remote", sourceDir, repo]
+      if (String(record.commit || "")) cmd.push(String(record.commit))
+      auditProcess.command = cmd
+    }
+    auditProcess.running = true
+    return true
+  }
+
   function startAction(operation, pluginId, snapshotId, executionMode) {
     if (!helperPath || actionRunning || actionProcess.running) return false
     if (["add", "remove", "remove-purge", "enable", "disable", "update"]
@@ -531,6 +563,26 @@ Item {
       onStreamFinished: statusProcess.output = text
     }
     onExited: root.acceptStatus(output)
+  }
+
+  Process {
+    id: auditProcess
+    property string output: ""
+    property string pluginId: ""
+    stdout: StdioCollector {
+      waitForEnd: true
+      onStreamFinished: auditProcess.output = text
+    }
+    onExited: function(exitCode) {
+      var report = ({})
+      try { report = JSON.parse(auditProcess.output || "{}") }
+      catch (e) { report = ({ summary: { verdict: "scan-error",
+        caveat: "The security scan produced no readable result." },
+        findings: [], limitations: [] }) }
+      root.auditState = report
+      root.auditing = false
+      root.auditReady(auditProcess.pluginId, report)
+    }
   }
 
   Process {

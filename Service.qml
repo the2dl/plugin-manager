@@ -360,8 +360,13 @@ Item {
     auditProcess.output = ""
     auditProcess.pluginId = id
     if (record.installed === true || record.builtIn === true) {
-      auditProcess.command = [helperPath, "audit", sourceDir,
-        pluginsRoot + "/" + id]
+      // A plugin with a pending update: scan the code the update would BRING
+      // (incoming diff), not just what is currently on disk.
+      var pending = record.updateAvailable === true
+        || record.warning === "Upstream changed"
+      auditProcess.command = pending && record.builtIn !== true
+        ? [helperPath, "audit-update", sourceDir, pluginsRoot + "/" + id]
+        : [helperPath, "audit", sourceDir, pluginsRoot + "/" + id]
     } else {
       var repo = String(record.repository || "")
       if (!repo) { auditing = false; auditForId = ""; return false }

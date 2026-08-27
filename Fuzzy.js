@@ -170,7 +170,8 @@ function matchesFilter(record, filter) {
     return presentLocally(record) && record.enabled === false
   if (value === "updates")
     return record.installed === true && record.builtIn !== true
-      && record.updateAvailable === true
+      && (record.updateAvailable === true
+        || record.warning === "Upstream changed")
   if (value === "source-marketplace") return record.marketplaceListed === true
   if (value === "source-local")
     return record.installed === true && record.marketplaceListed !== true
@@ -202,7 +203,8 @@ function eligible(record, mode) {
     return record.installed === true
   if (mode === "update")
     return record.installed === true && record.builtIn !== true
-      && record.updateAvailable === true
+      && (record.updateAvailable === true
+        || record.warning === "Upstream changed")
   var present = record.builtIn === true || record.installed === true
   if (mode === "enable")
     return present && record.enabled === false

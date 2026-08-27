@@ -18,7 +18,7 @@ done
 unset backend_module
 
 usage() {
-  json_error "usage: plugin-control <cached|refresh|check-updates|audit|audit-remote|preview|ensure-config|config-status|status|action|ack|benchmark> ..."
+  json_error "usage: plugin-control <cached|refresh|check-updates|audit|audit-remote|audit-update|preview|ensure-config|config-status|status|action|ack|benchmark> ..."
 }
 
 # audit_command <public-root> <plugin-dir> [diff-ref]
@@ -78,6 +78,45 @@ audit_remote_command() {
   [[ -n $commit ]] && git -C "$tmp/src" fetch --quiet --depth 1 origin "$commit" 2>/dev/null \
     && git -C "$tmp/src" checkout --quiet "$commit" 2>/dev/null || true
   audit_command "$root" "$tmp/src" ""
+}
+
+# audit_update_command <public-root> <plugin-dir>
+# Fetches the plugin's upstream, checks the incoming tip out to a temporary
+# worktree, and scans the diff from the installed commit to that tip. The
+# incoming code is only ever read, never merged into the live checkout.
+audit_update_command() {
+  local root="$1" dir="$2"
+  if ! command -v yara >/dev/null 2>&1; then
+    printf '%s\n' '{"schema":1,"summary":{"verdict":"scan-unavailable","caveat":"yara is not installed, so no static scan ran. Install it with: omarchy pkg add yara"},"findings":[],"limitations":[{"id":"no-scanner","detail":"yara is not installed"}]}'
+    return 0
+  fi
+  [[ -d $dir/.git ]] || { audit_command "$root" "$dir" ""; return 0; }
+  local here upstream tmp
+  here="$(git -C "$dir" rev-parse HEAD 2>/dev/null)" || { audit_command "$root" "$dir" ""; return 0; }
+  # Fetch enough history to diff against the installed commit.
+  git -C "$dir" fetch --quiet --depth 50 origin 2>/dev/null || true
+  upstream="$(git -C "$dir" rev-parse --verify --quiet '@{u}' 2>/dev/null)" \
+    || upstream="$(git -C "$dir" rev-parse --verify --quiet origin/HEAD 2>/dev/null)" \
+    || upstream="$(git -C "$dir" rev-parse --verify --quiet origin/main 2>/dev/null)" \
+    || upstream="$(git -C "$dir" rev-parse --verify --quiet origin/master 2>/dev/null)"
+  if [[ -z $upstream || $upstream == "$here" ]]; then
+    # nothing incoming (or no upstream) -- fall back to scanning what is here.
+    audit_command "$root" "$dir" ""
+    return 0
+  fi
+  tmp="$(mktemp -d "${TMPDIR:-/tmp}/plugin-control-update.XXXXXX")" || { audit_command "$root" "$dir" ""; return 0; }
+  trap 'git -C "$dir" worktree remove --force "$tmp/tree" 2>/dev/null; rm -rf -- "$tmp"' RETURN
+  if ! git -C "$dir" worktree add --quiet --detach "$tmp/tree" "$upstream" 2>/dev/null; then
+    audit_command "$root" "$dir" ""
+    return 0
+  fi
+  # Diff from the installed commit if it is reachable in the incoming history;
+  # otherwise scan the whole incoming tree.
+  if git -C "$tmp/tree" merge-base --is-ancestor "$here" HEAD 2>/dev/null; then
+    audit_command "$root" "$tmp/tree" "$here"
+  else
+    audit_command "$root" "$tmp/tree" ""
+  fi
 }
 
 main() {
@@ -156,6 +195,13 @@ main() {
       # UI show findings before the real `omarchy plugin add` runs.
       (( $# >= 2 && $# <= 3 )) || { usage; return 2; }
       audit_remote_command "$(source_root "$1")" "$2" "${3:-}"
+      ;;
+    audit-update)
+      # Scan the code an update WOULD bring: fetch upstream, check it out to a
+      # throwaway worktree (never applied), and diff against the installed
+      # commit. Read-only -- the incoming code is scanned, not run or installed.
+      (( $# == 2 )) || { usage; return 2; }
+      audit_update_command "$(source_root "$1")" "$2"
       ;;
     preview)
       (( $# == 4 )) || { usage; return 2; }

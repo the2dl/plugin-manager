@@ -188,6 +188,7 @@ FocusScope {
     "enable", "disable"].indexOf(selectedOperation) >= 0
 
   signal actionRequested(string operation)
+  signal deepScanRequested()
   signal canceled()
   signal previewRequested(string url, string name, int width, int height)
   signal terminalInstallToggled(bool enabled)
@@ -622,7 +623,8 @@ FocusScope {
               font.pixelSize: Style.font.caption
             }
             Text {
-              width: parent.width - x
+              id: securityHeadline
+              width: parent.width - x - deepScanButton.width - Style.spacing.sm
               text: "Security  ·  " + root.securityLabel
                 + (root.securityScanning || root.securityFindings.length === 0
                   ? "" : "  ·  " + root.securityFindings.length + " finding"
@@ -633,6 +635,49 @@ FocusScope {
               font.pixelSize: Style.font.caption
               font.bold: true
               elide: Text.ElideRight
+            }
+
+            // One deliberate click hands the plugin AND this static report to
+            // the configured coding agent for a deeper review (security/SKILL.md).
+            Rectangle {
+              id: deepScanButton
+              visible: !root.securityScanning
+                && root.securityVerdict !== "scan-unavailable"
+                && root.plugin
+                && (root.plugin.installed === true || root.plugin.builtIn === true)
+              anchors.verticalCenter: parent.verticalCenter
+              width: visible ? deepScanText.implicitWidth + Style.spacing.md : 0
+              height: Style.space(18)
+              radius: Style.cornerRadius
+              color: Util.alpha(root.marketplaceOrange,
+                deepScanHover.containsMouse ? 0.20 : 0.10)
+              border.width: Math.max(1, Style.space(1))
+              border.color: Util.alpha(root.marketplaceOrange, 0.55)
+
+              MouseArea {
+                id: deepScanHover
+                anchors.fill: parent
+                hoverEnabled: true
+                cursorShape: Qt.PointingHandCursor
+                onClicked: root.deepScanRequested()
+              }
+
+              Text {
+                id: deepScanText
+                anchors.centerIn: parent
+                text: "\uf544  Deep scan (AI)"
+                textFormat: Text.PlainText
+                color: root.marketplaceOrange
+                font.family: Style.font.family
+                font.pixelSize: Style.font.caption
+              }
+
+              PanelToolTip {
+                visible: deepScanHover.containsMouse
+                text: "Open the coding agent to review this plugin, "
+                  + "starting from the static findings above"
+                fontFamily: root.fontFamily
+              }
             }
           }
 

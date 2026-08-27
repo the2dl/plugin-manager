@@ -602,6 +602,21 @@ Item {
     marketplaceOrange = orangeMatch ? orangeMatch[1] : accent
   }
 
+  function launchDeepScan() {
+    if (!selectedRecord || !service) return
+    var id = String(selectedRecord.id || "")
+    var installed = selectedRecord.installed === true
+      || selectedRecord.builtIn === true
+    if (!id || !installed) return
+    var dir = service.pluginsRoot + "/" + id
+    transientMessage = "Opening the agent to review " + id + "..."
+    // Hand the plugin and the static report to the configured coding agent.
+    // plugin-audit-review re-runs the static pass, builds the prompt from it,
+    // and launches `omarchy agent` in its own terminal.
+    Quickshell.execDetached([sourcePath("bin/plugin-audit-review"), dir])
+    dismiss()
+  }
+
   function openWebsite(url) {
     dismiss()
     Quickshell.execDetached([omarchyPath + "/bin/omarchy", "launch",
@@ -1356,6 +1371,7 @@ Item {
               onActionRequested: function(operation) {
                 root.confirmAction(operation)
               }
+              onDeepScanRequested: root.launchDeepScan()
             }
           }
 

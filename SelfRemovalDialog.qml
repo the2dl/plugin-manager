@@ -77,7 +77,7 @@ FocusScope {
         Text {
           width: parent.width
           bottomPadding: Style.spacing.sm
-          text: "Sure to remove Plugin Control?"
+          text: "Sure to remove Plugin Manager?"
           textFormat: Text.PlainText
           color: root.foreground
           font.family: Style.font.menuFamily

@@ -691,7 +691,7 @@ ShellRoot {
             || overlay.filteredRecords[1].name !== "Keybindings"
             || overlay.filteredRecords[1].settingsAction !== "keybindings"
             || overlay.filteredRecords[2].name
-              !== "Cleanly remove Plugin Control and user data"
+              !== "Cleanly remove Plugin Manager and user data"
             || overlay.filteredRecords[2].settingsAction !== "remove-self"
             || overlay.filteredRecords[2].separatorBefore !== true
             || overlay.filteredRecords[3].name !== "Cancel / Back"

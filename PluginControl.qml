@@ -712,7 +712,7 @@ Item {
       selfRemovalDialog.openDialog()
       return true
     }
-    transientMessage = "Plugin Control is not available for removal."
+    transientMessage = "Plugin Manager is not available for removal."
     return false
   }
 
@@ -722,8 +722,8 @@ Item {
     if (service.startAction(operation, pluginId, pendingSnapshotId,
         "background")) {
       transientMessage = deleteUserData === true
-        ? "Cleaning user data and removing Plugin Control..."
-        : "Removing Plugin Control and preserving user data..."
+        ? "Cleaning user data and removing Plugin Manager..."
+        : "Removing Plugin Manager and preserving user data..."
       selfRemovalDialog.closeDialog()
       if (!settingsMenuOpen) Qt.callLater(queryInput.forceActiveFocus)
     }
@@ -882,7 +882,7 @@ Item {
 
   Shortcuts.HyprlandBinding {
     id: paletteBinding
-    actionDescription: "Plugin Control"
+    actionDescription: "Plugin Manager"
   }
 
   Connections {

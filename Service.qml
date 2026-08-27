@@ -159,7 +159,7 @@ Item {
     var field = String(parsed.field || "configuration")
     var actual = String(parsed.actual || "")
     var expected = String(parsed.expected || "")
-    var detail = String(parsed.error || "Invalid Plugin Control settings.")
+    var detail = String(parsed.error || "Invalid Plugin Manager settings.")
     if (expected) {
       detail = actual
         ? actual + " is not admissible for " + field
@@ -179,7 +179,7 @@ Item {
     var message = configProblemNotice(raw)
     if (!message) return false
     Quickshell.execDetached(["omarchy-notification-send", "-u", "normal",
-      "Plugin Control settings", message])
+      "Plugin Manager settings", message])
     return true
   }
 

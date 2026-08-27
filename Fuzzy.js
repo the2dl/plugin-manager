@@ -10,7 +10,7 @@ function commandRecord(name, operation, description) {
   return {
     name: name + ":",
     description: description,
-    author: "Plugin Control",
+    author: "Plugin Manager",
     kind: "Command",
     stateLabel: "TAB / ENTER",
     sourceLabel: "Command",

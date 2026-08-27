@@ -44,7 +44,7 @@ BarWidget {
     anchors.fill: parent
     bar: root.bar
     text: "󰏖"
-    tooltipText: "Plugin Control"
+    tooltipText: "Plugin Manager"
     // Keep red bounded to the failed-action notice, not the palette lifetime.
     active: root.actionFailed
     onPressed: function(buttonCode) {

@@ -1,12 +1,16 @@
 {
   "schemaVersion": 1,
   "id": "io.github.ilyazar.plugin-control",
-  "name": "Plugin Control",
+  "name": "Plugin Manager",
   "version": "0.2.1",
   "author": "ilyaZar",
   "license": "MIT",
-  "description": "Fuzzy command palette (Ctrl+P-like) for quickly adding, updating, enabling, disabling, and removing plugins (a la Sublime Text Package Control or VS Code Command Palette). The tray icon can be hidden in the settings so it runs nicely in the background without bloating your system. The main keybinding is customizable. The palette opens only when you fire it up, so it works on slower systems with minimal overhead (approximately 10 MiB of additional memory while idle).",
-  "kinds": ["service", "overlay", "bar-widget"],
+  "description": "A command-palette plugin manager for Omarchy with a built-in security scanner. Browse, add, enable, disable, update and remove shell plugins from a table UI, and see a static + optional AI security review of a plugin's code before you enable or update it. Forked from ilyaZar/plugin-control. The palette opens only when summoned, so it stays light in the background.",
+  "kinds": [
+    "service",
+    "overlay",
+    "bar-widget"
+  ],
   "keepLoaded": true,
   "entryPoints": {
     "service": "Service.qml",
@@ -14,8 +18,8 @@
     "barWidget": "PluginControlBar.qml"
   },
   "barWidget": {
-    "displayName": "Plugin Control",
-    "description": "Opens the Plugin Control command palette",
+    "displayName": "Plugin Manager",
+    "description": "Open the Plugin Manager palette",
     "category": "Launcher",
     "allowMultiple": false,
     "defaultSection": "right"

@@ -168,12 +168,12 @@ rg -Fq 'root.notifyConfigProblem(output, revision)' "$ROOT/Service.qml"
 rg -q 'actionDialog.openDialog\(\)' "$ROOT/PluginControl.qml"
 rg -q 'function openSelectedInfo\(\)' "$ROOT/PluginControl.qml"
 rg -q 'function showSettingsMenu\(\)' "$ROOT/PluginControl.qml"
-rg -Fq 'name: "Cleanly remove Plugin Control and user data"' \
+rg -Fq 'name: "Cleanly remove Plugin Manager and user data"' \
   "$ROOT/PaletteViewModel.js"
 rg -Fq 'separatorBefore: true' "$ROOT/PaletteViewModel.js"
 rg -q 'function openSelfRemovalDialog\(\)' "$ROOT/PluginControl.qml"
 rg -Fq '"remove-purge"' "$ROOT/PluginControl.qml"
-rg -Fq 'text: "Sure to remove Plugin Control?"' \
+rg -Fq 'text: "Sure to remove Plugin Manager?"' \
   "$ROOT/SelfRemovalDialog.qml"
 rg -Fq '"Yes (preserve user data)"' "$ROOT/SelfRemovalDialog.qml"
 rg -Fq '"Yes (delete user data)"' "$ROOT/SelfRemovalDialog.qml"

@@ -9,11 +9,11 @@ function settingsResult() {
       },
       {
         name: "Keybindings",
-        description: "Edit the user-owned Plugin Control shortcut",
+        description: "Edit the user-owned Plugin Manager shortcut",
         settingsAction: "keybindings"
       },
       {
-        name: "Cleanly remove Plugin Control and user data",
+        name: "Cleanly remove Plugin Manager and user data",
         description: "Remove the plugin with optional user-data cleanup",
         settingsAction: "remove-self",
         separatorBefore: true,

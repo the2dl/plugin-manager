@@ -106,7 +106,7 @@ Item {
   // Only a floor, never growth: the card keeps its browse height unless the
   // table was so short that the detail would not be usable.
   readonly property int detailCardHeight: Math.max(browseCardHeight,
-    Style.space(400))
+    Style.space(560))
   readonly property int cardHeight: selfRemovalDialog.opened
     ? Math.min(Style.space(280), availableCardHeight)
     : (detailOpen

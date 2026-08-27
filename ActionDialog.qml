@@ -47,6 +47,8 @@ FocusScope {
       if (fs[i] && fs[i].severity !== "info") out.push(fs[i])
     return out
   }
+  readonly property var securityFindingsShown: securityFindings.slice(0, 5)
+  readonly property int securityMoreCount: Math.max(0, securityFindings.length - 5)
   readonly property bool securityBlocking: securityVerdict === "review-required"
   readonly property color securityColor: securityVerdict === "review-required"
     ? warningColor
@@ -605,10 +607,10 @@ FocusScope {
         height: securityCol.implicitHeight + pad * 2
         radius: Style.cornerRadius
         color: Util.alpha(root.securityColor,
-          root.securityBlocking ? 0.14 : 0.09)
-        border.width: Math.max(1, Style.space(root.securityBlocking ? 2 : 1))
+          root.securityBlocking ? 0.10 : 0.06)
+        border.width: Math.max(1, Style.space(1))
         border.color: Util.alpha(root.securityColor,
-          root.securityBlocking ? 0.85 : 0.45)
+          root.securityBlocking ? 0.55 : 0.35)
 
         // A coloured spine so the block reads as one unit at a glance.
         Rectangle {
@@ -719,7 +721,7 @@ FocusScope {
               Text {
                 id: deepScanText
                 anchors.centerIn: parent
-                text: "\uf544  Deep scan (AI)"
+                text: "Deep scan (AI)"
                 textFormat: Text.PlainText
                 color: root.marketplaceOrange
                 font.family: Style.font.family
@@ -735,50 +737,70 @@ FocusScope {
             }
           }
 
-          // findings, each with a filled severity tag and room to breathe
+          // one compact line per finding: a severity dot + short label,
+          // the full explanation on hover. Capped so it never dominates.
           Repeater {
-            model: root.securityScanning ? [] : root.securityFindings
+            model: root.securityScanning ? [] : root.securityFindingsShown
 
-            delegate: Row {
+            delegate: Item {
               required property var modelData
               width: securityCol.width
-              spacing: Style.spacing.sm
+              height: Style.space(18)
+
+              readonly property color sevColor: modelData.severity === "high"
+                ? root.warningColor
+                : (modelData.severity === "medium"
+                  ? root.marketplaceYellow : Util.alpha(root.foreground, 0.45))
 
               Rectangle {
-                anchors.top: parent.top
-                anchors.topMargin: Style.space(1)
-                width: Style.space(34)
-                height: Style.space(15)
-                radius: Style.space(3)
-                color: modelData.severity === "high"
-                  ? root.warningColor
-                  : (modelData.severity === "medium"
-                    ? root.marketplaceYellow : Util.alpha(root.foreground, 0.30))
-                Text {
-                  anchors.centerIn: parent
-                  text: modelData.severity === "high" ? "HIGH"
-                    : (modelData.severity === "medium" ? "MED" : "LOW")
-                  textFormat: Text.PlainText
-                  color: root.background
-                  font.family: root.fontFamily
-                  font.pixelSize: Style.font.caption
-                  font.bold: true
-                }
+                id: sevDot
+                anchors.left: parent.left
+                anchors.verticalCenter: parent.verticalCenter
+                width: Style.space(6)
+                height: width
+                radius: width
+                color: parent.sevColor
               }
 
               Text {
-                width: parent.width - x
-                text: modelData.why || modelData.rule
+                anchors.left: sevDot.right
+                anchors.leftMargin: Style.spacing.sm
+                anchors.right: parent.right
+                anchors.verticalCenter: parent.verticalCenter
+                text: modelData.short || modelData.rule
                 textFormat: Text.PlainText
-                color: root.foreground
-                opacity: modelData.severity === "high" ? 1 : 0.82
+                color: modelData.severity === "high"
+                  ? root.foreground : Util.alpha(root.foreground, 0.85)
                 font.family: root.fontFamily
                 font.pixelSize: Style.font.caption
-                wrapMode: Text.Wrap
-                maximumLineCount: 3
                 elide: Text.ElideRight
               }
+
+              MouseArea {
+                id: findingHover
+                anchors.fill: parent
+                hoverEnabled: true
+              }
+              PanelToolTip {
+                visible: findingHover.containsMouse
+                text: "[" + modelData.severity + "] "
+                  + (modelData.why || modelData.rule)
+                panelBorder: parent.sevColor
+                fontFamily: root.fontFamily
+              }
             }
+          }
+
+          Text {
+            visible: root.securityMoreCount > 0
+            width: parent.width
+            text: "+ " + root.securityMoreCount + " more finding"
+              + (root.securityMoreCount === 1 ? "" : "s")
+            textFormat: Text.PlainText
+            color: root.foreground
+            opacity: 0.55
+            font.family: root.fontFamily
+            font.pixelSize: Style.font.caption
           }
 
           Text {

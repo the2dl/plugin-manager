@@ -62,6 +62,41 @@ BINARY_SUSPECT = %w[.so .bin .elf .out .appimage .pyc].freeze
 OPAQUE_DATA = %w[.dat .bin .pack .blob .payload .tpl .cache].freeze
 SEVERITY_ORDER = { "high" => 3, "medium" => 2, "low" => 1, "info" => 0 }.freeze
 
+# Terse labels for compact UI. `why` remains the long explanation (tooltip /
+# agent prompt); `short` is what a row shows so the panel stays scannable.
+SHORT_LABELS = {
+  "callback_fetch_pipe_shell" => "Downloads and runs remote code",
+  "callback_download_and_execute" => "Downloads a file and executes it",
+  "callback_download_to_disk" => "Downloads an executable to disk",
+  "callback_outbound_http" => "Contacts the network",
+  "callback_raw_ip_address" => "Talks to a hard-coded IP",
+  "callback_dns_exfiltration" => "DNS lookup built from local data",
+  "callback_raw_socket" => "Opens a raw socket",
+  "obfuscation_encoded_execution" => "Decodes a blob and runs it",
+  "obfuscation_dynamic_code" => "Builds code at runtime",
+  "obfuscation_escaped_string_run" => "Hidden escaped-string payload",
+  "obfuscation_reversed_command" => "Reversed / shuffled command",
+  "credential_secret_paths" => "Reads private keys or secrets",
+  "credential_cloud_provider" => "Reads cloud credentials (AWS/Azure/GCP)",
+  "credential_steals_other_program_secrets" => "Reads another program's secrets",
+  "credential_browser_profile" => "Reads a browser profile",
+  "persistence_hidden_autostart" => "Hidden autostart / persistence",
+  "persistence_systemd_unit" => "Installs a systemd unit",
+  "persistence_shell_rcfile" => "Writes to your shell startup file",
+  "persistence_writes_outside_plugin" => "Writes outside its own directory",
+  "privilege_tampering" => "Tampers with root / sudoers",
+  "capability_privilege_escalation" => "Runs a command as root",
+  "combo_credential_exfil" => "Reads a secret and sends it out",
+  "structure_runtime_qml_load" => "Loads QML from a decoded path",
+  "structure_data_payload_exec" => "Runs a payload from a data file"
+}.freeze
+
+def short_label(rule)
+  return SHORT_LABELS[rule] if SHORT_LABELS.key?(rule)
+  return "Command-injection seam (#{rule.sub("injection_", "")})" if rule.start_with?("injection_")
+  rule.sub(/\A[a-z]+_/, "").tr("_", " ").capitalize
+end
+
 def die(message)
   warn("plugin-audit: #{message}")
   exit 2
@@ -567,6 +602,7 @@ grouped = findings.group_by { |f| [f["rule"], f["file"]] }.map do |(rule, file),
   worst = hits.max_by { |h| SEVERITY_ORDER.fetch(h["severity"], 1) }
   {
     "rule" => rule,
+    "short" => short_label(rule),
     "severity" => worst["severity"],
     "declared_severity" => worst["declared_severity"],
     "demoted_because" => worst["demoted_because"],
@@ -598,6 +634,7 @@ by_file.each do |file, fs|
 
   grouped << {
     "rule" => "combo_credential_exfil",
+    "short" => "Reads a secret and sends it out",
     "severity" => "high",
     "declared_severity" => "high",
     "demoted_because" => nil,

@@ -381,7 +381,7 @@ Item {
       ? service.records : []
     filterCounts = Fuzzy.counts(records)
     var result = settingsMenuOpen ? PaletteViewModel.settingsResult()
-      : Fuzzy.search(records, query, 200, activeFilter)
+      : Fuzzy.search(records, query, 5000, activeFilter)
     mode = result.mode
     filteredRecords = result.results
     displayModel.clear()

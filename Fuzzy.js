@@ -217,7 +217,7 @@ function search(records, input, limit, filter) {
   var values = Array.isArray(records) ? records : []
   var maximum = Number(limit)
   if (!isFinite(maximum)) maximum = 50
-  maximum = Math.max(0, Math.min(100, Math.floor(maximum)))
+  maximum = Math.max(0, Math.min(5000, Math.floor(maximum)))
   if (parsed.mode === "browse" && normalize(input).indexOf(":") >= 0)
     return { mode: "command", results: [] }
   var commands = parsed.mode === "browse" ? commandSuggestions(input) : null

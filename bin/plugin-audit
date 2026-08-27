@@ -52,6 +52,7 @@ DOC_IP = %r{\A(192\.0\.2\.|198\.51\.100\.|203\.0\.113\.|224\.|239\.)}.freeze
 DEMOTE = { "high" => "medium", "medium" => "low", "low" => "info",
            "info" => "info" }.freeze
 BINARY_SUSPECT = %w[.so .bin .elf .out .appimage .pyc].freeze
+OPAQUE_DATA = %w[.dat .bin .pack .blob .payload .tpl .cache].freeze
 SEVERITY_ORDER = { "high" => 3, "medium" => 2, "low" => 1, "info" => 0 }.freeze
 
 def die(message)
@@ -418,6 +419,76 @@ unless scannable.empty?
   end
 end
 
+# --- structural checks -------------------------------------------------------
+
+# Cross-file and manifest-relative signals. You can hide a string, but not the
+# structural fact that code loads QML the manifest never declared, or that a
+# script decodes a shipped data file and executes the result. These are what
+# the sophisticated red-team sample relied on -- assembled at runtime so no
+# malicious literal exists -- and they are deterministic to catch here.
+DECODE_PRIM = /reverse\s*\(|\[::-1\]|\batob\b|fromCharCode|base64|b64decode|\.fromhex\(|codecs\.decode|rot13|unpack/
+EXEC_PRIM   = /subprocess\.|os\.system|\bexec\b|\beval\b|Popen|execDetached|Qt\.createQmlObject|Qt\.createComponent|-c[ \t]/
+QML_LOAD    = /Qt\.createQmlObject|Qt\.createComponent/
+
+net_primitive_files = {}
+declared_entries = (manifest["entryPoints"].is_a?(Hash) ? manifest["entryPoints"].values : [])
+                   .map { |v| File.basename(v.to_s) }
+
+scannable.each do |file|
+  body = File.read(file) rescue next
+  rel = relative(file, plugin_dir)
+
+  # An outbound send of any kind, literal URL or not -- used by the exfil combo
+  # so a runtime-assembled destination does not hide the send.
+  if body.match?(/\bcurl\b|\bwget\b|-X[ \t]+POST|--data|XMLHttpRequest|\bfetch\s*\(|\/dev\/tcp\/|\bnc\b[ \t]|socat|new[ \t]+WebSocket|http\.(request|post)|requests\.(post|get)|urllib|Net::HTTP/)
+    (net_primitive_files ||= {})[rel] = true
+  end
+
+  # A: QML built and loaded at runtime, alongside a decode primitive. A literal
+  #    createQmlObject("import ...") is normal; one whose source is decoded or
+  #    reversed is loading a file it does not want named.
+  if body.match?(QML_LOAD) && body.match?(DECODE_PRIM)
+    line = (body.lines.index { |l| l.match?(QML_LOAD) } || 0) + 1
+    findings << {
+      "rule" => "structure_runtime_qml_load", "severity" => "high",
+      "declared_severity" => "high", "demoted_because" => nil,
+      "category" => "obfuscation",
+      "why" => "Builds and loads QML at runtime from a decoded or reversed " \
+               "source. This runs code the manifest never declares as an entry " \
+               "point, so it escapes any review of the declared surface.",
+      "file" => rel, "line" => line, "match" => "Qt.createQmlObject with a decoded source",
+      "source" => "structural", "in_diff" => true
+    }
+  end
+
+  # B: a script that reads a shipped non-code file, decodes it, and executes
+  #    the result. The payload lives in the data file; the script is only the
+  #    loader, so nothing overtly bad is in the code itself.
+  referenced_data = all_files.select do |f|
+    ext = File.extname(f).downcase
+    (OPAQUE_DATA.include?(ext) || ext.empty?) &&
+      !MEDIA.include?(ext) && !executables.include?(f) &&
+      body.include?(File.basename(f))
+  end
+  lines = body.lines
+  dec_at = lines.index { |l| l.match?(DECODE_PRIM) }
+  exec_at = lines.index { |l| l.match?(EXEC_PRIM) }
+  close = dec_at && exec_at && (dec_at - exec_at).abs <= 12
+  if referenced_data.any? && close
+    line = (exec_at || 0) + 1
+    findings << {
+      "rule" => "structure_data_payload_exec", "severity" => "high",
+      "declared_severity" => "high", "demoted_because" => nil,
+      "category" => "obfuscation",
+      "why" => "Reads a shipped data file (#{referenced_data.map { |f| relative(f, plugin_dir) }.join(", ")[0, 80]}), " \
+               "decodes it, and executes the result. The payload lives in the " \
+               "data file, so the code carries nothing overtly malicious.",
+      "file" => rel, "line" => line, "match" => "decode + exec of a shipped data file",
+      "source" => "structural", "in_diff" => true
+    }
+  end
+end
+
 # --- shellcheck ---------------------------------------------------------------
 
 # A different question from the rules above: not "is this malicious" but "can
@@ -498,6 +569,41 @@ grouped = findings.group_by { |f| [f["rule"], f["file"]] }.map do |(rule, file),
     "hits" => hits.size,
     "lines" => hits.map { |h| h["line"] }.uniq.sort.first(12),
     "samples" => hits.map { |h| h["match"] }.uniq.first(4)
+  }
+end
+
+# Exfil combo: a file that both reaches a real secret and talks to the network
+# is the supply-chain shape -- read the credential, send it out. The recent
+# ecosystem attacks all had this form, often shipping to a legitimate-looking
+# host (a GitHub gist, an npm registry), so this deliberately does not care
+# where the traffic goes. Built from co-located findings, in plugin-guard's
+# combo style.
+by_file = grouped.group_by { |f| f["file"] }
+by_file.each do |file, fs|
+  cred = fs.find do |f|
+    f["category"] == "credential" &&
+      SEVERITY_ORDER.fetch(f["severity"], 0) >= SEVERITY_ORDER["medium"]
+  end
+  net_finding = fs.find { |f| f["category"] == "callback" && f["rule"] != "capability_opens_browser" }
+  has_net = net_finding || net_primitive_files[file]
+  next unless cred && has_net
+  net_desc = net_finding ? net_finding["rule"] : "an outbound send (curl/POST/socket)"
+
+  grouped << {
+    "rule" => "combo_credential_exfil",
+    "severity" => "high",
+    "declared_severity" => "high",
+    "demoted_because" => nil,
+    "category" => "combo",
+    "why" => "This file reads a credential (#{cred["rule"]}) AND sends data to " \
+             "the network (#{net_desc}). That combination is exfiltration " \
+             "regardless of the destination -- recent supply-chain attacks " \
+             "shipped stolen keys to ordinary hosts like github.com. Confirm " \
+             "what leaves this machine and where it goes.",
+    "file" => file,
+    "hits" => 2,
+    "lines" => (cred["lines"] + (net_finding ? net_finding["lines"] : [])).uniq.sort.first(12),
+    "samples" => ["credential: #{cred["rule"]}", "network: #{net_desc}"]
   }
 end
 

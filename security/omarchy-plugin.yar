@@ -37,12 +37,39 @@ rule callback_fetch_pipe_shell {
     category = "callback"
     why = "Downloads code and executes it in one step, so what runs is whatever the server returns at that moment. Nothing reviewable is pinned."
   strings:
-    $a = /curl[^\n|]{0,200}\|[ \t]*(ba)?sh[ \t]*(\n|$|;|\||&)/
-    $b = /wget[^\n|]{0,200}\|[ \t]*(ba)?sh[ \t]*(\n|$|;|\||&)/
+    $a = /curl[^\n|]{0,200}\|[ \t]*(ba)?sh\b/
+    $b = /wget[^\n|]{0,200}\|[ \t]*(ba)?sh\b/
     $c = /curl[^\n]{0,200}--output[^\n]{0,120}&&[^\n]{0,60}(chmod|\.\/)/
     $d = /fetch\([^\n]{0,200}\)[^\n]{0,80}eval/
   condition:
     any of them
+}
+
+rule callback_download_and_execute {
+  meta:
+    severity = "high"
+    category = "callback"
+    why = "Downloads a file and runs it -- staged through disk instead of piped, but the same thing as curl|sh: what executes is whatever the server served, and nothing in the repo pins it. The single most common real-world dropper shape."
+  strings:
+    // download to a file (-o/-O/--output or a redirect), then chmod +x or run
+    // it, chained on the same sequence with && ; or ||.
+    $chain = /(curl|wget)[^\n]{0,200}(-o|-O|--output|>>?)[^\n]{0,100}(&&|;|\|\|)[ \t\n]{0,60}chmod[ \t]+[^\n]{0,20}(\+x|u\+x|a\+x|[157][0-9][0-9])/
+    // chmod +x something, then execute it from /tmp, a cache dir, or a var.
+    $runtmp = /chmod[ \t]+[^\n]{0,20}(\+x|[157][0-9][0-9])[^\n]{0,100}(&&|;)[ \t\n]{0,40}(\/tmp\/|[^\n]{0,20}\.cache\/|\.\/|\$)/
+  condition:
+    any of them
+}
+
+rule callback_download_to_disk {
+  meta:
+    severity = "medium"
+    category = "callback"
+    why = "Downloads a file and makes it executable. Legitimate installers do this for a pinned, checksum-verified backend; confirm the source is fixed and the file is verified before it runs."
+  strings:
+    $dl = /(curl|wget)[^\n]{0,160}(-o|-O|--output)/
+    $chmodx = /chmod[ \t]+[^\n]{0,20}(\+x|u\+x|a\+x|[157][0-9][0-9])/
+  condition:
+    $dl and $chmodx
 }
 
 rule callback_outbound_http {
@@ -118,10 +145,10 @@ rule obfuscation_encoded_execution {
     category = "obfuscation"
     why = "Decodes a blob and runs it. There is no legitimate reason for a plugin's own logic to be unreadable in its own repository."
   strings:
-    $b64sh  = /base64[ \t]+(-d|--decode)[^\n|]{0,80}\|[ \t]*(ba)?sh[ \t]*(\n|$|;|\||&)/
+    $b64sh  = /base64[ \t]+(-d|--decode)[^\n|]{0,80}\|[ \t]*(ba)?sh\b/
     $b64ev  = /eval[^\n]{0,80}base64[ \t]+(-d|--decode)/
-    $gz     = /(gunzip|zcat|gzip[ \t]+-d)[^\n|]{0,80}\|[ \t]*(ba)?sh[ \t]*(\n|$|;|\||&)/
-    $xxd    = /xxd[ \t]+-r[^\n|]{0,80}\|[ \t]*(ba)?sh[ \t]*(\n|$|;|\||&)/
+    $gz     = /(gunzip|zcat|gzip[ \t]+-d)[^\n|]{0,80}\|[ \t]*(ba)?sh\b/
+    $xxd    = /xxd[ \t]+-r[^\n|]{0,80}\|[ \t]*(ba)?sh\b/
     $atob   = /eval\s*\(\s*atob\s*\(/
   condition:
     any of them
@@ -136,6 +163,7 @@ rule obfuscation_dynamic_code {
     $qml   = "Qt.createQmlObject"
     $fn    = /new\s+Function\s*\(/
     $eval  = /\beval\s*\(/
+    $evalsh = /\beval[ \t]+"?\$[A-Za-z_][A-Za-z0-9_]*"?[ \t]*($|[>;&|])/
   condition:
     any of them
 }
@@ -170,8 +198,8 @@ rule obfuscation_reversed_command {
     category = "obfuscation"
     why = "Reversing or character-shuffling a command string hides it from a reader and from simple scanning."
   strings:
-    $rev = /\|[ \t]*rev[ \t]*\|[ \t]*(ba)?sh[ \t]*(\n|$|;|\||&)/
-    $tr  = /\btr\b[^\n|]{0,60}\|[ \t]*(ba)?sh[ \t]*(\n|$|;|\||&)/
+    $rev = /\|[ \t]*rev[ \t]*\|[ \t]*(ba)?sh\b/
+    $tr  = /\btr\b[^\n|]{0,60}\|[ \t]*(ba)?sh\b/
   condition:
     any of them
 }
@@ -191,6 +219,29 @@ rule credential_secret_paths {
     $kube  = ".kube/config"
     $pass  = /\.password-store\//
     $env   = /(cat|cp|read|source)[ \t]+[^\n]{0,60}\.env\b/
+  condition:
+    any of them
+}
+
+rule credential_cloud_provider {
+  meta:
+    severity = "high"
+    category = "credential"
+    why = "Reads cloud-infrastructure credentials (AWS, Azure, GCP, Kubernetes, and similar). These are rarely a desktop plugin's business, and they are the exact target of recent supply-chain attacks: read the key, ship it somewhere. A plugin that genuinely manages cloud resources is the rare case worth confirming by hand."
+  strings:
+    $aws1 = /\bAWS_SECRET_ACCESS_KEY\b/
+    $aws2 = /\bAWS_ACCESS_KEY_ID\b/
+    $aws3 = /\bAWS_SESSION_TOKEN\b/
+    $azure1 = /\bAZURE_CLIENT_SECRET\b/
+    $azure2 = /\.azure\//
+    $gcp1 = /\bGOOGLE_APPLICATION_CREDENTIALS\b/
+    $gcp2 = /\.config\/gcloud\/(application_default_credentials|legacy_credentials)/
+    $k8s = /\bKUBECONFIG\b/
+    $do = /\bDIGITALOCEAN_[A-Z_]*TOKEN\b/
+    $cf = /\bCLOUDFLARE_API_TOKEN\b/
+    $heroku = /\bHEROKU_API_KEY\b/
+    $vault = /\bVAULT_TOKEN\b/
+    $npm = /\b(NPM_TOKEN|PYPI_TOKEN|CARGO_REGISTRY_TOKEN)\b/
   condition:
     any of them
 }
@@ -244,11 +295,25 @@ rule persistence_hidden_autostart {
     why = "Hooks a startup path the user does not associate with the plugin. Removing the plugin will not stop it, and nothing in the plugin manager will show it."
   strings:
     $cron      = /\bcrontab\b[ \t]+-/
-    $autostart = /\.config\/autostart\//
+    $autostart = /\.config\/autostart(\/|["'\s])/
     $bashrc    = /(>>|tee[ \t]+-a)[ \t]*[^\n]{0,40}\.(bashrc|zshrc|profile|bash_profile)/
     $githook   = /\.git\/hooks\//
   condition:
     any of them
+}
+
+rule persistence_shell_rcfile {
+  meta:
+    severity = "medium"
+    category = "persistence"
+    why = "Appends to a shell startup file. This runs on every login, outside the plugin lifecycle, and survives the plugin being removed. Caught by co-occurrence so a variable target ($rc=~/.bashrc; cat >> \"$rc\") does not evade it."
+  strings:
+    $rc = /\.(bashrc|zshrc|bash_profile|profile)\b/
+    $app1 = /(cat|printf|echo|tee)[^\n]{0,60}>>/
+    $app2 = /tee[ \t]+-a\b/
+    $app3 = />>[ \t]*["'$]/
+  condition:
+    $rc and any of ($app*)
 }
 
 rule persistence_systemd_unit {

@@ -92,13 +92,16 @@ Item {
     && !detailOpen ? columnHeaderHeight : 0
   readonly property int activeFooterHeight: paletteChromeVisible
     && !detailOpen ? footerHeight : 0
+  readonly property int activeBannerHeight: paletteChromeVisible && !detailOpen
+    && activeFilter === "updates" && pendingUpdateCount > 0
+    ? Style.space(30) : 0
   readonly property int visibleRows: Math.max(1,
     Math.min(14, filteredRecords.length || 1))
   readonly property int resultRowsHeight: visibleRows * rowHeight
     + Math.max(0, visibleRows - 1) * rowSpacing
   readonly property int desiredCardHeight: cardPadding * 2
-    + activeHeaderHeight + activeColumnHeaderHeight + resultRowsHeight
-    + activeFooterHeight
+    + activeHeaderHeight + activeBannerHeight + activeColumnHeaderHeight
+    + resultRowsHeight + activeFooterHeight
   readonly property int availableCardHeight: Math.max(Style.space(180),
     panel.height - restingY - Style.gapsOut)
   readonly property int browseCardHeight: Math.min(Style.space(600),
@@ -1235,7 +1238,7 @@ Item {
             visible: root.paletteChromeVisible && !root.detailOpen
               && root.activeFilter === "updates" && root.pendingUpdateCount > 0
             width: parent.width
-            height: visible ? Style.space(30) : 0
+            height: root.activeBannerHeight
             radius: Style.cornerRadius
             color: Util.alpha(root.accent, updateAllMouse.containsMouse ? 0.20 : 0.12)
             border.width: Math.max(1, Style.space(1))
@@ -1371,8 +1374,8 @@ Item {
           Item {
             width: parent.width
             height: Math.max(root.rowHeight, parent.height
-              - root.activeHeaderHeight - root.activeColumnHeaderHeight
-              - root.activeFooterHeight)
+              - root.activeHeaderHeight - root.activeBannerHeight
+              - root.activeColumnHeaderHeight - root.activeFooterHeight)
             clip: true
 
             ListView {

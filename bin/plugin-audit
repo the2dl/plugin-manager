@@ -1,0 +1,354 @@
+#!/usr/bin/env ruby
+# frozen_string_literal: true
+
+# Static audit for an Omarchy shell plugin.
+#
+# Emits a JSON report describing what the plugin can reach: its git provenance,
+# its file inventory, and every rule hit with the reviewer's reasoning attached.
+# The report is the input to the LLM pass (security/SKILL.md) as well as being
+# useful on its own.
+#
+#   plugin-audit <plugin-dir> [--rules-dir DIR ...] [--pretty]
+#
+# Exit status is 0 whenever the scan itself completed: a finding is a result,
+# not an error. Callers branch on summary.verdict.
+
+require "json"
+require "open3"
+require "shellwords"
+
+SOURCE_ROOT = File.expand_path("..", __dir__)
+DEFAULT_RULES = File.join(SOURCE_ROOT, "security", "omarchy-plugin.yar")
+
+# Only text a plugin can actually execute or that steers execution. Binaries are
+# reported as an inventory fact instead: yara on a .png is noise, but a shipped
+# ELF in a QML plugin is itself the finding.
+# Deliberately excludes .yar/.yara: rule files are data, never executed, and a
+# ruleset scanned by its own rules matches every pattern it defines.
+SCANNABLE = %w[.qml .js .sh .bash .rb .jq .py .pl .json .jsonc
+               .desktop .service].freeze
+COMMENT_PREFIXES = ["#", "//", "/*", "*", "--", "<!--", ";"].freeze
+# Test code ships with the plugin but the shell never loads it. Across the
+# marketplace it is named by file as often as by directory, and scanners in
+# particular carry deliberately malicious fixtures.
+TEST_PATH = %r{
+  (\A|/)(tests?|spec|specs|fixtures?|__tests__|examples?|migrations)/ |
+  (\A|/)(test|spec)[_-][^/]+\z |
+  [._-](test|spec)\.[a-z]+\z
+}x.freeze
+# RFC1918, loopback and link-local are a plugin talking to the user's own
+# network -- home server, local daemon, router. A public address is the
+# finding. 169.254.169.254 is the cloud metadata endpoint and is its own thing.
+PRIVATE_IP = %r{\A(127\.|10\.|192\.168\.|0\.0\.0\.0|255\.|169\.254\.|
+                 172\.(1[6-9]|2[0-9]|3[01])\.)}x.freeze
+METADATA_IP = "169.254.169.254"
+# Public resolvers are connectivity checks, and RFC5737/RFC3849 ranges are
+# documentation placeholders. Both showed up across the marketplace and
+# neither is a callback worth waking anyone for.
+BENIGN_IP = %w[8.8.8.8 8.8.4.4 1.1.1.1 1.0.0.1 9.9.9.9 208.67.222.222
+               77.88.8.8 100.100.101.102 223.5.5.5].freeze
+DOC_IP = %r{\A(192\.0\.2\.|198\.51\.100\.|203\.0\.113\.|224\.|239\.)}.freeze
+DEMOTE = { "high" => "medium", "medium" => "low", "low" => "info",
+           "info" => "info" }.freeze
+BINARY_SUSPECT = %w[.so .bin .elf .out .appimage .pyc].freeze
+SEVERITY_ORDER = { "high" => 3, "medium" => 2, "low" => 1, "info" => 0 }.freeze
+
+def die(message)
+  warn("plugin-audit: #{message}")
+  exit 2
+end
+
+# --- arguments ---------------------------------------------------------------
+
+plugin_dir = nil
+rules_files = []
+pretty = false
+
+args = ARGV.dup
+until args.empty?
+  arg = args.shift
+  case arg
+  when "--rules-dir"
+    dir = args.shift or die("--rules-dir needs a directory")
+    found = Dir.glob(File.join(dir, "**", "*.{yar,yara}")).sort
+    die("no .yar rules under #{dir}") if found.empty?
+    rules_files.concat(found)
+  when "--rules"
+    file = args.shift or die("--rules needs a file")
+    rules_files << file
+  when "--pretty" then pretty = true
+  when "-h", "--help"
+    puts <<~USAGE
+      Usage: plugin-audit <plugin-dir> [options]
+
+        --rules-dir DIR   also load every .yar/.yara under DIR (repeatable)
+        --rules FILE      also load one rules file (repeatable)
+        --pretty          indent the JSON
+
+      Writes a JSON report to stdout. Exit 0 means the scan ran; read
+      .summary.verdict for the outcome.
+    USAGE
+    exit 0
+  else
+    die("unexpected argument: #{arg}") if plugin_dir
+    plugin_dir = arg
+  end
+end
+
+die("usage: plugin-audit <plugin-dir>") unless plugin_dir
+plugin_dir = File.expand_path(plugin_dir)
+die("not a directory: #{plugin_dir}") unless File.directory?(plugin_dir)
+rules_files.unshift(DEFAULT_RULES) if File.exist?(DEFAULT_RULES)
+die("no rules to run") if rules_files.empty?
+
+yara = ENV["PLUGIN_AUDIT_YARA"] || "yara"
+_, status = Open3.capture2e(yara, "--version")
+unless status.success?
+  die("yara is not installed. Install it with: omarchy pkg add yara")
+end
+
+# --- rule metadata -----------------------------------------------------------
+
+# yara -m prints metadata on one line and is awkward to parse per match, so the
+# meta blocks are read from the rule sources once. This keeps the .yar file the
+# single source of truth for severity and reasoning.
+def parse_rule_meta(files)
+  meta = {}
+  files.each do |file|
+    next unless File.file?(file)
+
+    current = nil
+    File.foreach(file) do |line|
+      if (m = line.match(/^\s*(?:private\s+|global\s+)*rule\s+([A-Za-z0-9_]+)/))
+        current = m[1]
+        meta[current] = { "severity" => "medium", "category" => "other",
+                          "why" => "", "source" => File.basename(file) }
+      elsif current && (m = line.match(/^\s*(severity|category|why)\s*=\s*"(.*)"\s*$/))
+        meta[current][m[1]] = m[2]
+      elsif current && line.match?(/^\s*(strings|condition)\s*:/)
+        current = nil
+      end
+    end
+  end
+  meta
+end
+
+RULE_META = parse_rule_meta(rules_files)
+
+# --- inventory ---------------------------------------------------------------
+
+def relative(path, root)
+  path.sub(/\A#{Regexp.escape(root)}\/?/, "")
+end
+
+all_files = Dir.glob(File.join(plugin_dir, "**", "*"), File::FNM_DOTMATCH)
+             .reject { |p| p.include?("/.git/") || File.directory?(p) }
+             .sort
+
+symlinks = all_files.select { |p| File.symlink?(p) }
+scannable = all_files.select do |p|
+  !File.symlink?(p) && SCANNABLE.include?(File.extname(p).downcase)
+end
+# extension-less files that are still scripts (bin/foo)
+scannable += all_files.select do |p|
+  next false if File.symlink?(p) || !File.extname(p).empty?
+  next false unless File.file?(p) && File.size(p).positive?
+
+  File.open(p, "rb") { |f| f.read(2) } == "#!"
+end
+scannable.uniq!
+
+executables = all_files.select { |p| !File.symlink?(p) && File.executable?(p) }
+binaries = all_files.select { |p| BINARY_SUSPECT.include?(File.extname(p).downcase) }
+
+by_ext = all_files.group_by { |p| File.extname(p).downcase }
+                  .transform_values(&:count)
+                  .sort_by { |_, v| -v }.to_h
+
+# --- provenance --------------------------------------------------------------
+
+def git(dir, *cmd)
+  out, status = Open3.capture2e("git", "-C", dir, *cmd)
+  status.success? ? out.strip : nil
+end
+
+manifest_path = File.join(plugin_dir, "manifest.json")
+manifest = begin
+  File.exist?(manifest_path) ? JSON.parse(File.read(manifest_path)) : {}
+rescue JSON::ParserError
+  {}
+end
+
+provenance = {
+  "remote" => git(plugin_dir, "remote", "get-url", "origin"),
+  "commit" => git(plugin_dir, "rev-parse", "HEAD"),
+  "committed_at" => git(plugin_dir, "log", "-1", "--format=%cI"),
+  "authors" => git(plugin_dir, "log", "--format=%ae")&.split("\n")&.uniq&.size,
+  "dirty" => !git(plugin_dir, "status", "--porcelain").to_s.empty?
+}
+
+# --- scan --------------------------------------------------------------------
+
+findings = []
+unless scannable.empty?
+  # yara accepts many rules files but exactly one target, so a list of paths
+  # goes in via --scan-list rather than as trailing arguments (where files
+  # after the first would be parsed as rules).
+  require "tempfile"
+  list = Tempfile.new(["plugin-audit-targets", ".txt"])
+  begin
+    list.write(scannable.join("\n"))
+    list.flush
+
+    rules_files.each do |rules_file|
+      out, status = Open3.capture2e(yara, "-s", "-w", "--no-follow-symlinks",
+                                    "--scan-list", rules_file, list.path)
+      # yara exits 0 with matches, 1 on error. Surface a rules error rather
+      # than silently reporting a clean plugin.
+      unless status.success?
+        die("yara failed on #{File.basename(rules_file)}: #{out.lines.first&.strip}")
+      end
+
+      current_rule = nil
+      current_file = nil
+      out.each_line do |line|
+        line = line.chomp
+        if (m = line.match(/\A([A-Za-z0-9_]+) (.+)\z/)) && File.exist?(m[2])
+          current_rule = m[1]
+          current_file = m[2]
+        elsif current_rule && (m = line.match(/\A0x([0-9a-f]+):(\$[A-Za-z0-9_]+): (.*)\z/))
+          offset = m[1].to_i(16)
+          meta = RULE_META[current_rule] || {}
+          body = File.binread(current_file, offset)
+          line_no = body.count("\n") + 1
+          rel = relative(current_file, plugin_dir)
+          declared = meta["severity"] || "medium"
+
+          # A pattern inside a comment cannot execute. The most common false
+          # positive in practice is an author *documenting* the very thing the
+          # rule looks for -- one plugin here is flagged for a comment
+          # explaining why it refuses to copy ~/.ssh/id_rsa. Demote rather than
+          # drop, so a payload hiding in a string that looks like a comment is
+          # still visible.
+          source_line = (File.readlines(current_file)[line_no - 1] || "").strip
+          in_comment = COMMENT_PREFIXES.any? { |pre| source_line.start_with?(pre) }
+          in_test = rel.match?(TEST_PATH)
+
+          severity = declared
+          reasons = []
+
+          # Rule-specific refinement: yara finds the candidate, this decides
+          # whether it means anything. Cheaper and far more accurate than
+          # trying to express "not RFC1918" in a regex with no lookahead.
+          if current_rule == "callback_raw_ip_address"
+            ip = m[3][%r{(?:\d{1,3}\.){3}\d{1,3}}].to_s
+            if ip == METADATA_IP
+              reasons << "cloud metadata endpoint -- a classic credential-theft target"
+            elsif ip.match?(PRIVATE_IP)
+              declared = "info"
+              severity = "info"
+              reasons << "private or loopback address, so this is the user's own network"
+            elsif BENIGN_IP.include?(ip)
+              declared = "info"
+              severity = "info"
+              reasons << "well-known public resolver, so this is a connectivity check"
+            elsif ip.match?(DOC_IP)
+              declared = "info"
+              severity = "info"
+              reasons << "reserved documentation or multicast address, not a real destination"
+            end
+          end
+
+          if in_comment
+            severity = "info"
+            reasons << "match is inside a comment, so it cannot execute"
+          elsif in_test
+            severity = DEMOTE.fetch(declared, declared)
+            reasons << "match is in test code, which the shell never loads"
+          end
+
+          findings << {
+            "rule" => current_rule,
+            "severity" => severity,
+            "declared_severity" => declared,
+            "demoted_because" => reasons.first,
+            "category" => meta["category"] || "other",
+            "why" => meta["why"] || "",
+            "file" => rel,
+            "line" => line_no,
+            "match" => m[3][0, 160],
+            "source" => meta["source"]
+          }
+        end
+      end
+    end
+  ensure
+    list.close
+    list.unlink
+  end
+end
+
+# One row per rule+file: a rule that hits forty times in one file is one thing
+# to look at, not forty. The count is kept so volume is still visible.
+grouped = findings.group_by { |f| [f["rule"], f["file"]] }.map do |(rule, file), hits|
+  # Group on the worst hit: one runnable match matters more than ten in
+  # comments, so a file with both is reported at the runnable severity.
+  worst = hits.max_by { |h| SEVERITY_ORDER.fetch(h["severity"], 1) }
+  {
+    "rule" => rule,
+    "severity" => worst["severity"],
+    "declared_severity" => worst["declared_severity"],
+    "demoted_because" => worst["demoted_because"],
+    "category" => worst["category"],
+    "why" => worst["why"],
+    "file" => file,
+    "hits" => hits.size,
+    "lines" => hits.map { |h| h["line"] }.uniq.sort.first(12),
+    "samples" => hits.map { |h| h["match"] }.uniq.first(4)
+  }
+end
+
+grouped.sort_by! { |f| [-SEVERITY_ORDER.fetch(f["severity"], 1), f["file"], f["rule"]] }
+
+counts = Hash.new(0)
+grouped.each { |f| counts[f["severity"]] += 1 }
+
+# `info` rules describe reach, not risk, so they never move the verdict.
+verdict =
+  if counts["high"].positive? then "review-required"
+  elsif counts["medium"].positive? then "review-suggested"
+  else "clean"
+  end
+
+report = {
+  "schema" => 1,
+  "plugin" => {
+    "id" => manifest["id"],
+    "name" => manifest["name"],
+    "version" => manifest["version"],
+    "author" => manifest["author"],
+    "path" => plugin_dir,
+    "kinds" => manifest["kinds"],
+    "keepLoaded" => manifest["keepLoaded"]
+  },
+  "provenance" => provenance,
+  "inventory" => {
+    "files" => all_files.size,
+    "scanned" => scannable.size,
+    "by_extension" => by_ext,
+    "symlinks" => symlinks.map { |p| relative(p, plugin_dir) },
+    "executables" => executables.map { |p| relative(p, plugin_dir) },
+    "suspect_binaries" => binaries.map { |p| relative(p, plugin_dir) }
+  },
+  "rules" => rules_files.map { |f| relative(File.expand_path(f), SOURCE_ROOT) },
+  "findings" => grouped,
+  "summary" => {
+    "verdict" => verdict,
+    "high" => counts["high"],
+    "medium" => counts["medium"],
+    "low" => counts["low"],
+    "info" => counts["info"]
+  }
+}
+
+puts(pretty ? JSON.pretty_generate(report) : JSON.generate(report))

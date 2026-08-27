@@ -77,6 +77,14 @@ highs="$(jq -r '.summary.high' "$report")"
 mediums="$(jq -r '.summary.medium' "$report")"
 remote="$(jq -r '.provenance.remote // "unknown"' "$report")"
 commit="$(jq -r '.provenance.commit // "unknown"' "$report")"
+caveat="$(jq -r '.summary.caveat' "$report")"
+# What the static pass could not read is where a reader is most needed, so it
+# goes into the prompt as work to do rather than staying buried in the JSON.
+gaps="$(jq -r '
+  [ (.coverage.low_confidence[]? | "  - \(.file) (\(.reason)) -- pattern matching says nothing useful here"),
+    (.inventory.suspect_binaries[]? | "  - \(.) -- compiled, not analysed at all"),
+    (.coverage.skipped[]? | select(.reason|test("binary|symlink")) | "  - \(.file) (\(.reason))")
+  ] | unique | .[0:20] | join("\n")' "$report")"
 
 scope="the whole plugin"
 diff_file=""
@@ -101,10 +109,16 @@ A static YARA pass has already run. Its JSON report is at:
 
   $report
 
-It found $highs high and $mediums medium items (verdict: $verdict). That report
-is regex matching over the source: it over-reports ordinary command execution
-and it cannot see anything assembled at runtime. Use it as a map of the repo,
-confirm or dismiss each item, and then look for what it could not see.
+It found $highs high and $mediums medium items. Verdict: $verdict --
+$caveat
+
+That report is regex matching over the source. Its own \`limitations\` array
+lists what it structurally cannot see: code assembled at runtime, anything the
+plugin fetches after install, behaviour gated on a date or a hostname, and
+whether a capability is justified by the plugin's purpose. Those gaps are your
+job, not the scanner's. Use the report as a map of the repo, confirm or dismiss
+each item, and then go after what it could not see.
+$( [[ -n $gaps ]] && printf '\nThe scanner could not meaningfully read these -- read them yourself:\n\n%s\n' "$gaps" )
 $( [[ -n $diff_file ]] && printf '\nThe diff under review is at:\n\n  %s\n' "$diff_file" )
 Use the audit-omarchy-plugin skill for the method -- what counts as normal for
 an Omarchy plugin, what to hunt for, and how to report it. If your harness has

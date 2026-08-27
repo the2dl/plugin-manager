@@ -158,6 +158,40 @@ scannable += all_files.select do |p|
 end
 scannable.uniq!
 
+# A file that shipped but was not meaningfully read is part of the verdict,
+# not an omission from it. Minified and vendored code is "scanned" only in the
+# sense that bytes went past a regex; nobody can review it that way.
+MEDIA = %w[.png .jpg .jpeg .gif .webp .svg .mp4 .webm .mov .ico .ttf .otf
+           .woff .woff2 .zip .tar .gz .xz].freeze
+
+def minified?(path)
+  return false unless %w[.js .css].include?(File.extname(path).downcase)
+  return true if File.basename(path).match?(/\.min\.(js|css)\z/)
+
+  longest = 0
+  File.foreach(path) { |l| longest = l.length if l.length > longest }
+  longest > 500
+rescue StandardError
+  false
+end
+
+low_confidence = scannable.select { |p| minified?(p) || p.include?("/node_modules/") }
+                          .map do |p|
+  { "file" => relative(p, plugin_dir),
+    "reason" => p.include?("/node_modules/") ? "vendored dependency" : "minified" }
+end
+
+skipped = all_files.reject { |p| scannable.include?(p) }.map do |p|
+  ext = File.extname(p).downcase
+  reason =
+    if File.symlink?(p) then "symlink, not followed"
+    elsif MEDIA.include?(ext) then "media or archive"
+    elsif BINARY_SUSPECT.include?(ext) then "compiled binary -- read it by hand"
+    else "not an executable text format"
+    end
+  { "file" => relative(p, plugin_dir), "reason" => reason }
+end
+
 executables = all_files.select { |p| !File.symlink?(p) && File.executable?(p) }
 binaries = all_files.select { |p| BINARY_SUSPECT.include?(File.extname(p).downcase) }
 
@@ -317,7 +351,51 @@ grouped.each { |f| counts[f["severity"]] += 1 }
 verdict =
   if counts["high"].positive? then "review-required"
   elsif counts["medium"].positive? then "review-suggested"
-  else "clean"
+  else "no-static-findings"
+  end
+
+# What this scan structurally cannot see. Shipped with every report, so a
+# passing verdict is never read as "this plugin is safe" -- it means "no rule
+# matched this source at this commit".
+limitations = [
+  { "id" => "source-only",
+    "detail" => "Pattern matching over source. Anything assembled at runtime " \
+                "-- a URL built from fragments, a command decoded before " \
+                "execution -- is invisible to it." },
+  { "id" => "point-in-time",
+    "detail" => "Describes commit #{provenance["commit"].to_s[0, 12]} only. " \
+                "The plugin can fetch and run different code after install, " \
+                "and an update ships code this report never saw." },
+  { "id" => "no-behaviour",
+    "detail" => "Nothing was executed and no traffic was observed. Logic " \
+                "gated on a date, a hostname or a random draw looks inert here." },
+  { "id" => "intent-not-judged",
+    "detail" => "Rules match capability, not purpose. Whether reading a " \
+                "credential is this plugin's job is a question about the " \
+                "plugin's stated purpose, which only a reader can answer." }
+]
+if low_confidence.any?
+  limitations << { "id" => "unreviewable-code",
+                   "detail" => "#{low_confidence.size} minified or vendored " \
+                               "file(s) were pattern-matched but cannot be " \
+                               "meaningfully reviewed this way." }
+end
+if binaries.any?
+  limitations << { "id" => "shipped-binaries",
+                   "detail" => "#{binaries.size} compiled file(s) shipped and " \
+                               "were not analysed at all." }
+end
+
+caveat =
+  case verdict
+  when "no-static-findings"
+    "No rule matched this source at this commit. That is not the same as safe " \
+    "-- see limitations."
+  when "review-suggested"
+    "Findings worth a look, none of them conclusive on their own."
+  else
+    "At least one finding needs a person to decide whether the plugin's " \
+    "purpose justifies it."
   end
 
 report = {
@@ -340,10 +418,19 @@ report = {
     "executables" => executables.map { |p| relative(p, plugin_dir) },
     "suspect_binaries" => binaries.map { |p| relative(p, plugin_dir) }
   },
+  "coverage" => {
+    "scanned" => scannable.size,
+    "skipped" => skipped.first(200),
+    "skipped_total" => skipped.size,
+    "low_confidence" => low_confidence.first(50),
+    "low_confidence_total" => low_confidence.size
+  },
+  "limitations" => limitations,
   "rules" => rules_files.map { |f| relative(File.expand_path(f), SOURCE_ROOT) },
   "findings" => grouped,
   "summary" => {
     "verdict" => verdict,
+    "caveat" => caveat,
     "high" => counts["high"],
     "medium" => counts["medium"],
     "low" => counts["low"],

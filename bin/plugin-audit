@@ -276,7 +276,8 @@ provenance = {
 # attribution that comment- and test-demotion depend on, so instead the real
 # files are scanned and each finding is checked against the added-line ranges.
 def added_line_ranges(dir, ref)
-  out, status = Open3.capture2e("git", "-C", dir, "diff", "-U0", "#{ref}..HEAD")
+  out, status = Open3.capture2e("git", "-C", dir, "-c", "core.quotePath=false",
+                                "diff", "-U0", "#{ref}..HEAD")
   return nil unless status.success?
 
   ranges = Hash.new { |h, k| h[k] = [] }
@@ -473,8 +474,6 @@ EXEC_PRIM   = /subprocess\.|os\.system|\bexec\b|\beval\b|Popen|execDetached|Qt\.
 QML_LOAD    = /Qt\.createQmlObject|Qt\.createComponent/
 
 net_primitive_files = {}
-declared_entries = (manifest["entryPoints"].is_a?(Hash) ? manifest["entryPoints"].values : [])
-                   .map { |v| File.basename(v.to_s) }
 
 scannable.each do |file|
   body = File.read(file) rescue next
@@ -486,19 +485,24 @@ scannable.each do |file|
     (net_primitive_files ||= {})[rel] = true
   end
 
-  # A: QML built and loaded at runtime, alongside a decode primitive. A literal
-  #    createQmlObject("import ...") is normal; one whose source is decoded or
-  #    reversed is loading a file it does not want named.
-  if body.match?(QML_LOAD) && body.match?(DECODE_PRIM)
-    line = (body.lines.index { |l| l.match?(QML_LOAD) } || 0) + 1
+  # A: QML built and loaded at runtime FROM a decoded/reversed source. A literal
+  #    createQmlObject("import ...") is normal; the finding is the decode
+  #    primitive sitting next to the load, not merely both appearing in the file.
+  qml_lines = body.lines
+  qml_at = qml_lines.index { |l| l.match?(QML_LOAD) }
+  qml_dec_near = qml_at && (([qml_at - 3, 0].max)..(qml_at + 3)).any? do |i|
+    i < qml_lines.length && qml_lines[i].match?(DECODE_PRIM)
+  end
+  if qml_at && qml_dec_near
     findings << {
       "rule" => "structure_runtime_qml_load", "severity" => "high",
       "declared_severity" => "high", "demoted_because" => nil,
       "category" => "obfuscation",
       "why" => "Builds and loads QML at runtime from a decoded or reversed " \
-               "source. This runs code the manifest never declares as an entry " \
-               "point, so it escapes any review of the declared surface.",
-      "file" => rel, "line" => line, "match" => "Qt.createQmlObject with a decoded source",
+               "source (a decode primitive sits next to the createQmlObject/" \
+               "createComponent call), which hides what code is actually run.",
+      "file" => rel, "line" => qml_at + 1,
+      "match" => "Qt.createQmlObject with a decoded source",
       "source" => "structural", "in_diff" => true
     }
   end

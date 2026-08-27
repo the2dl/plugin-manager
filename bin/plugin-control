@@ -75,8 +75,14 @@ audit_remote_command() {
     json_error "could not clone $repo for scanning"
     return 0
   fi
-  [[ -n $commit ]] && git -C "$tmp/src" fetch --quiet --depth 1 origin "$commit" 2>/dev/null \
-    && git -C "$tmp/src" checkout --quiet "$commit" 2>/dev/null || true
+  # A commit ref from the catalog is only ever used if it is a plain hex SHA --
+  # so it can never be parsed as a git option (e.g. --upload-pack=<cmd>).
+  if [[ -n $commit && $commit =~ ^[0-9a-fA-F]{7,64}$ ]]; then
+    git -C "$tmp/src" -c protocol.ext.allow=never -c core.hooksPath=/dev/null \
+      fetch --quiet --depth 1 origin "$commit" 2>/dev/null \
+      && git -C "$tmp/src" -c core.hooksPath=/dev/null \
+        checkout --quiet --detach "$commit" 2>/dev/null || true
+  fi
   audit_command "$root" "$tmp/src" ""
 }
 
@@ -132,6 +138,7 @@ audit_updates_command() {
   local id dir report row
   while IFS= read -r id; do
     [[ -n $id ]] || continue
+    [[ $id == */* || $id == .* || $id == *..* ]] && continue
     dir="$PLUGINS_ROOT/$id"
     [[ -d $dir ]] || continue
     report="$(audit_update_command "$root" "$dir" 2>/dev/null)"
@@ -177,6 +184,9 @@ update_all_command() {
   if (( ${#ok_ids[@]} )) && [[ -f $UPDATE_STATE && ! -L $UPDATE_STATE ]]; then
     local ids_json tmp
     ids_json="$(printf '%s\n' "${ok_ids[@]}" | jq -R . | jq -cs .)"
+    # Serialise against a concurrent check-updates writer.
+    exec 9>>"$UPDATE_STATE_LOCK"
+    flock 9
     tmp="$(mktemp "${UPDATE_STATE}.XXXXXX")"
     if jq --argjson ids "$ids_json" --arg now "$(utc_now)" '
         .records = ((.records // []) | map(
@@ -190,6 +200,8 @@ update_all_command() {
     else
       rm -f "$tmp"
     fi
+    flock -u 9 2>/dev/null || true
+    exec 9>&- 2>/dev/null || true
   fi
 
   build_snapshot "$root" >/dev/null 2>&1 || true

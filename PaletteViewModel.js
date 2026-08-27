@@ -63,10 +63,10 @@ function updateOption(record) {
 
 function actionOptions(record, readOnly) {
   if (readOnly === true)
-    return [{ operation: "close", label: "Close", available: true }]
+    return [{ operation: "close", label: "Back", available: true }]
 
   var options = [
-    { operation: "cancel", label: "Cancel", available: true }
+    { operation: "cancel", label: "Back", available: true }
   ]
   if (!record || !record.id) return options
 

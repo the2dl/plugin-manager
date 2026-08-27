@@ -25,12 +25,14 @@ var COMMANDS = [
   commandRecord("plug-remove", "remove", "Search removable local plugins"),
   commandRecord("plug-enable", "enable", "Search disabled plugins"),
   commandRecord("plug-disable", "disable", "Search enabled plugins"),
-  commandRecord("plug-update", "update", "Check for plugin updates")
+  commandRecord("plug-update", "update", "Check for plugin updates"),
+  commandRecord("plug-installed", "installed",
+    "Browse only the plugins you installed")
 ]
 
 function parseQuery(value) {
   var raw = text(value)
-  var match = /^\s*plug-(add|remove|enable|disable|update)\s*:\s*([\s\S]*)$/i
+  var match = /^\s*plug-(add|remove|enable|disable|update|installed)\s*:\s*([\s\S]*)$/i
     .exec(raw)
   if (!match) return { mode: "browse", query: raw.trim() }
 
@@ -148,12 +150,56 @@ function operationIntent(operation, value) {
     && subsequenceCost(operation, query) >= 0
 }
 
+var FILTERS = ["all", "installed", "available", "disabled", "updates",
+  "source-marketplace", "source-local"]
+
+function presentLocally(record) {
+  return record.builtIn === true || record.installed === true
+}
+
+// Rail filters. These narrow browse mode only; an explicit `plug-...:`
+// command still searches the whole catalog.
+function matchesFilter(record, filter) {
+  var value = text(filter) || "all"
+  if (value === "all") return true
+  if (!record || !record.id) return false
+  if (value === "installed") return record.installed === true
+  if (value === "available")
+    return record.installable === true && record.installed !== true
+  if (value === "disabled")
+    return presentLocally(record) && record.enabled === false
+  if (value === "updates")
+    return record.installed === true && record.builtIn !== true
+      && record.updateAvailable === true
+  if (value === "source-marketplace") return record.marketplaceListed === true
+  if (value === "source-local")
+    return record.installed === true && record.marketplaceListed !== true
+  return true
+}
+
+function counts(records) {
+  var values = Array.isArray(records) ? records : []
+  var out = {}
+  var i
+  for (i = 0; i < FILTERS.length; i++) out[FILTERS[i]] = 0
+  for (i = 0; i < values.length; i++) {
+    var record = values[i]
+    if (!record || !record.id) continue
+    for (var j = 0; j < FILTERS.length; j++) {
+      if (matchesFilter(record, FILTERS[j])) out[FILTERS[j]]++
+    }
+  }
+  return out
+}
+
 function eligible(record, mode) {
   if (!record || !record.id) return false
   if (mode === "add")
     return record.installable === true && record.installed !== true
   if (mode === "remove")
     return record.removable === true
+  if (mode === "installed")
+    return record.installed === true
   if (mode === "update")
     return record.installed === true && record.builtIn !== true
       && record.updateAvailable === true
@@ -166,7 +212,7 @@ function eligible(record, mode) {
   return true
 }
 
-function search(records, input, limit) {
+function search(records, input, limit, filter) {
   var parsed = parseQuery(input)
   var values = Array.isArray(records) ? records : []
   var maximum = Number(limit)
@@ -183,6 +229,7 @@ function search(records, input, limit) {
   for (var i = 0; i < values.length; i++) {
     var record = values[i]
     if (!eligible(record, parsed.mode)) continue
+    if (parsed.mode === "browse" && !matchesFilter(record, filter)) continue
     var score = scoreRecord(record, parsed.query)
     if (parsed.query && score < 0) continue
     rows.push({ record: record, score: score })
@@ -204,6 +251,9 @@ function search(records, input, limit) {
 
 if (typeof module !== "undefined") {
   module.exports = {
+    FILTERS: FILTERS,
+    counts: counts,
+    matchesFilter: matchesFilter,
     parseQuery: parseQuery,
     scoreRecord: scoreRecord,
     search: search

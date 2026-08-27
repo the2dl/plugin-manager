@@ -270,7 +270,8 @@ ShellRoot {
         overlay.service = root.serviceObject
         overlay.query = "plug-ad"
         if (overlay.mode !== "command"
-            || overlay.filteredRecords.length !== 1
+            || overlay.filteredRecords.length !== 2
+            || overlay.filteredRecords[0].commandCompletion !== "plug-add: "
             || overlay.selectedRecord !== null) {
           console.error("PLUGIN_CONTROL_LOAD_ERROR add completion stage")
         }
@@ -684,7 +685,7 @@ ShellRoot {
             || overlay.paletteChromeVisible
             || overlay.activeHeaderHeight !== 0
             || overlay.activeFooterHeight !== 0
-            || overlay.statusHeight !== 0
+            || overlay.activeColumnHeaderHeight !== 0
             || overlay.filteredRecords[0].name !== "Plugin settings"
             || overlay.filteredRecords[0].settingsAction !== "plugin"
             || overlay.filteredRecords[1].name !== "Keybindings"
@@ -801,7 +802,7 @@ ShellRoot {
         if (dialog.reviewedCommit
               !== "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
             || dialog.actions.length !== 1
-            || dialog.actions[0].label !== "Close"
+            || dialog.actions[0].label !== "Back"
             || dialog.operationText !== "No system change"
             || !dialog.hasPreview || dialog.terminalAllowed
             || dialog.selectedMutates) {
@@ -842,7 +843,7 @@ ShellRoot {
           tags: ["shell"]
         }
         if (dialog.actions.length !== 4
-            || dialog.actions[0].label !== "Cancel"
+            || dialog.actions[0].label !== "Back"
             || dialog.actions[1].label !== "Update"
             || dialog.actions[2].label !== "Disable"
             || dialog.actions[3].label !== "Remove"
@@ -909,6 +910,39 @@ ShellRoot {
         }
         dialog.closeDialog()
 
+        // Clicking an action selects and runs it, the same as Enter does.
+        dialog.plugin = {
+          id: "io.example.clickable",
+          installed: true,
+          enabled: true,
+          canDisable: true,
+          removable: true,
+          updateStatus: "clean"
+        }
+        var clickCancels = root.dialogCanceledCount
+        var clickConfirms = root.dialogConfirmedCount
+        dialog.openDialog()
+        dialog.activateChoice(2)
+        if (dialog.selectedChoice !== 2
+            || root.dialogConfirmedCount !== clickConfirms + 1
+            || root.lastDialogOperation !== "disable") {
+          console.error("PLUGIN_CONTROL_LOAD_ERROR pointer action dispatch")
+        }
+        dialog.openDialog()
+        dialog.activateChoice(0)
+        if (root.dialogCanceledCount !== clickCancels + 1
+            || root.dialogConfirmedCount !== clickConfirms + 1) {
+          console.error("PLUGIN_CONTROL_LOAD_ERROR pointer back dispatch")
+        }
+        dialog.openDialog()
+        dialog.busy = true
+        dialog.activateChoice(3)
+        if (root.dialogConfirmedCount !== clickConfirms + 1) {
+          console.error("PLUGIN_CONTROL_LOAD_ERROR busy dialog accepts clicks")
+        }
+        dialog.busy = false
+        dialog.closeDialog()
+
         dialog.plugin = {
           id: "omarchy.bar",
           builtIn: true,
@@ -916,7 +950,7 @@ ShellRoot {
           enabled: true
         }
         if (dialog.actions.length !== 1
-            || dialog.actions[0].label !== "Cancel") {
+            || dialog.actions[0].label !== "Back") {
           console.error("PLUGIN_CONTROL_LOAD_ERROR active full bar actions")
         }
         dialog.plugin = {

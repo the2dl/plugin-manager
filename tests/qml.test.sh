@@ -7,6 +7,11 @@ readonly TEST_DIR
 ROOT="$(cd -- "$TEST_DIR/.." && pwd)"
 readonly ROOT
 
+fail() {
+  printf 'not ok - %s\n' "$1" >&2
+  exit 1
+}
+
 qmllint_bin="$(command -v qmllint)"
 if [[ -x /usr/lib/qt6/bin/qmllint ]]; then
   qmllint_bin=/usr/lib/qt6/bin/qmllint
@@ -15,6 +20,7 @@ fi
   "$ROOT/Service.qml" "$ROOT/PluginControl.qml" "$ROOT/ActionDialog.qml" \
   "$ROOT/PluginControlBar.qml" "$ROOT/SelfRemovalDialog.qml" \
   "$ROOT/PaletteResultRow.qml" "$ROOT/PaletteFooter.qml" \
+  "$ROOT/PaletteFilterRail.qml" \
   "$ROOT/lib/shortcuts/HyprlandBinding.qml"
 printf 'ok - QML lint\n'
 
@@ -24,30 +30,39 @@ rg -q 'function toggle\(\)' "$ROOT/PluginControl.qml"
 rg -q 'TextInput \{' "$ROOT/PluginControl.qml"
 rg -q 'Qt.Key_P' "$ROOT/PluginControl.qml"
 rg -Fq 'event.key === Qt.Key_Escape' "$ROOT/PluginControl.qml"
-rg -Fq '{ keyLabel: "[Ctrl+i]", label: "Plugin info" }' \
-  "$ROOT/PaletteFooter.qml"
-rg -Fq '{ keyLabel: "[Ctrl+u]", label: "Check for plugin updates" }' \
-  "$ROOT/PaletteFooter.qml"
-rg -Fq '{ keyLabel: "[Ctrl+w]",' \
-  "$ROOT/PaletteFooter.qml"
-rg -Fq '{ keyLabel: "[Ctrl+g]", label: "GitHub plugin source" }' \
-  "$ROOT/PaletteFooter.qml"
-rg -Fq '{ keyLabel: "[Ctrl+r]", label: "Refresh cache" }' \
-  "$ROOT/PaletteFooter.qml"
-rg -Fq '{ keyLabel: "[Ctrl+s]", label: "Settings" }' \
-  "$ROOT/PaletteFooter.qml"
-ctrl_u_line="$(rg -nF '{ keyLabel: "[Ctrl+u]"' \
-  "$ROOT/PaletteFooter.qml" | cut -d: -f1)"
-ctrl_i_line="$(rg -nF '{ keyLabel: "[Ctrl+i]"' \
-  "$ROOT/PaletteFooter.qml" | cut -d: -f1)"
-(( ctrl_u_line < ctrl_i_line ))
-rg -Fq 'width: footerRow.width / 6' "$ROOT/PaletteFooter.qml"
-rg -Fq 'anchors.horizontalCenter: parent.horizontalCenter' \
-  "$ROOT/PaletteFooter.qml"
-rg -Fq 'horizontalAlignment: Text.AlignHCenter' "$ROOT/PaletteFooter.qml"
-rg -Fq 'fontSizeMode: Text.HorizontalFit' "$ROOT/PaletteFooter.qml"
-rg -Fq 'Style.font.caption - (compact ? 1 : 0)' \
-  "$ROOT/PaletteFooter.qml"
+# The six keyboard-shortcut chips are gone; the footer is now an icon
+# action strip bound to the selected row.
+if rg -q 'keyLabel' "$ROOT/PaletteFooter.qml"; then
+  printf 'not ok - keyboard shortcut chips remain in the footer\n' >&2
+  exit 1
+fi
+rg -Fq 'signal operationRequested(string operation)' "$ROOT/PaletteFooter.qml"
+rg -Fq 'signal infoRequested()' "$ROOT/PaletteFooter.qml"
+rg -Fq 'signal websiteRequested()' "$ROOT/PaletteFooter.qml"
+rg -Fq 'signal sourceRequested()' "$ROOT/PaletteFooter.qml"
+rg -Fq 'Icons.glyph(entry.operation)' "$ROOT/PaletteFooter.qml"
+rg -Fq 'root.shortcutColor' "$ROOT/PaletteFooter.qml"
+
+# Filters are a rail, not only a typed `plug-...:` prefix.
+rg -Fq 'signal filterPicked(string id)' "$ROOT/PaletteFilterRail.qml"
+for palette_filter in all installed available disabled updates \
+  source-marketplace source-local; do
+  rg -Fq "id: \"$palette_filter\"" "$ROOT/PaletteFilterRail.qml"
+done
+rg -Fq 'PaletteFilterRail {' "$ROOT/PluginControl.qml"
+rg -Fq 'function setFilter(id)' "$ROOT/PluginControl.qml"
+rg -Fq 'filterCounts = Fuzzy.counts(records)' "$ROOT/PluginControl.qml"
+rg -Fq 'Fuzzy.search(records, query, 200, activeFilter)' \
+  "$ROOT/PluginControl.qml"
+
+# The detail dialog uses icons, not a row of equal-width text buttons.
+rg -Fq 'Icons.glyph(actionButton.modelData.operation)' "$ROOT/ActionDialog.qml"
+rg -Fq 'function selectOperation(operation)' "$ROOT/ActionDialog.qml"
+if rg -q 'font.pixelSize: Style.font.title' "$ROOT/ActionDialog.qml" \
+    | rg -q 'actionButton'; then
+  printf 'not ok - text action buttons remain in the dialog\n' >&2
+  exit 1
+fi
 if rg -q 'Ctrl\+Shift|isContextShortcut' "$ROOT/PluginControl.qml"; then
   printf 'not ok - shifted palette shortcuts remain\n' >&2
   exit 1
@@ -118,7 +133,6 @@ rg -Fq 'setting("trayIconHidden", false) === true' \
   "$ROOT/PluginControlBar.qml"
 printf 'ok - bar launcher uses the native package button and settings menu\n'
 
-rg -Fq 'color: root.shortcutColor' "$ROOT/PaletteFooter.qml"
 rg -Fq 'color: Util.alpha(root.foreground, 0.16)' \
   "$ROOT/PaletteFooter.qml"
 rg -q 'sourceLabel:' "$ROOT/PaletteViewModel.js"
@@ -195,17 +209,32 @@ rg -q 'selectedChoice' "$ROOT/ActionDialog.qml"
 rg -Fq 'maximumLineCount: root.readOnly ? 100 : 2' \
   "$ROOT/ActionDialog.qml"
 rg -Fq 'contentColumn.implicitHeight' "$ROOT/ActionDialog.qml"
-rg -Fq 'actionDialog.preferredReadOnlyHeight' "$ROOT/PluginControl.qml"
+# The detail no longer resizes the card to fit its content; it replaces
+# the table inside the card the palette already has.
+rg -Fq 'readonly property bool detailOpen: actionDialog.opened' \
+  "$ROOT/PluginControl.qml"
+rg -Fq '&& !detailOpen ? columnHeaderHeight : 0' "$ROOT/PluginControl.qml"
+rg -Fq '&& !detailOpen ? footerHeight : 0' "$ROOT/PluginControl.qml"
+if rg -q 'actionCardHeight' "$ROOT/PluginControl.qml"; then
+  fail "detail view must not grow the palette card"
+fi
 rg -Fq 'fillMode: Image.PreserveAspectFit' "$ROOT/ActionDialog.qml"
 rg -Fq 'width: previewThumbnail.paintedWidth' "$ROOT/ActionDialog.qml"
 rg -Fq 'height: previewThumbnail.paintedHeight' "$ROOT/ActionDialog.qml"
 rg -Fq 'anchors.right: previewClickArea.right' "$ROOT/ActionDialog.qml"
-if awk 'found || /id: actionButton/ { found = 1; print }' \
-    "$ROOT/ActionDialog.qml" | rg -q 'MouseArea|cursorShape|onClicked'; then
-  fail "action footer must remain keyboard-only"
+# The action row is pointer-driven as well as keyboard-driven: hovering an
+# icon selects it (so the caption follows the mouse) and clicking runs it.
+rg -Fq 'function activateChoice(index)' "$ROOT/ActionDialog.qml"
+rg -Fq 'onClicked: root.activateChoice(actionButton.index)' \
+  "$ROOT/ActionDialog.qml"
+rg -Fq 'onEntered: root.selectChoice(actionButton.index, false)' \
+  "$ROOT/ActionDialog.qml"
+if ! rg -Fq '|| root.busy ? Qt.ArrowCursor : Qt.PointingHandCursor' \
+    "$ROOT/ActionDialog.qml"; then
+  fail "unavailable or busy actions must not present as clickable"
 fi
-rg -Fq 'border.color: root.marketplaceYellow' "$ROOT/ActionDialog.qml"
-rg -Fq 'font.bold: root.readOnly' "$ROOT/ActionDialog.qml"
+rg -Fq 'root.marketplaceYellow' "$ROOT/ActionDialog.qml"
+rg -Fq 'font.pixelSize: Style.font.icon' "$ROOT/ActionDialog.qml"
 rg -Fq 'function returnToMainMenu()' "$ROOT/PluginControl.qml"
 rg -Fq 'event.key === Qt.Key_Escape' "$ROOT/PluginControl.qml"
 rg -Fq 'event.key === Qt.Key_Q' "$ROOT/PluginControl.qml"
@@ -245,20 +274,28 @@ rg -Fq 'tooltip: "GitHub repository stars"' "$ROOT/ActionDialog.qml"
 rg -Fq 'tooltip: "Marketplace detail views"' "$ROOT/ActionDialog.qml"
 rg -Fq 'tooltip: "Successful command copies"' "$ROOT/ActionDialog.qml"
 rg -Fq 'tooltip: "Anonymous marketplace hearts"' "$ROOT/ActionDialog.qml"
-rg -Fq 'text: "REPOSITORY"' "$ROOT/ActionDialog.qml"
+# Repository, author, version, source and the reviewed commit now render
+# through one compact key/value list.
+rg -Fq 'key: "Repository"' "$ROOT/ActionDialog.qml"
+rg -Fq 'key: "Author"' "$ROOT/ActionDialog.qml"
+rg -Fq 'key: "Version"' "$ROOT/ActionDialog.qml"
+rg -Fq 'key: "Source"' "$ROOT/ActionDialog.qml"
+rg -Fq 'key: "Reviewed"' "$ROOT/ActionDialog.qml"
 rg -Fq 'not a security audit' "$ROOT/ActionDialog.qml"
 rg -Fq 'does not mean "' "$ROOT/ActionDialog.qml"
 rg -Fq 'root.plugin.tags' "$ROOT/ActionDialog.qml"
 rg -Fq 'property bool pointerInteractive: true' "$ROOT/PaletteResultRow.qml"
-if (( $(rg -c 'cursorShape: root.pointerInteractive' \
-    "$ROOT/PaletteResultRow.qml") != 2 )); then
+row_hit_areas="$(rg -c 'MouseArea \{' "$ROOT/PaletteResultRow.qml")"
+row_pointer_guards="$(rg -c 'cursorShape: root.pointerInteractive' \
+  "$ROOT/PaletteResultRow.qml")"
+if (( row_hit_areas != row_pointer_guards )); then
   fail "result row hit areas must share dialog pointer state"
 fi
 rg -Fq 'readonly property bool modalDialogOpened: actionDialog.opened' \
   "$ROOT/PluginControl.qml"
 rg -Fq 'pointerInteractive: !root.modalDialogOpened' \
   "$ROOT/PluginControl.qml"
-rg -Fq 'text: "Search plugins (or type \"plug-...\" for direct plugin commands)."' \
+rg -Fq 'text: "Search plugins, or type \"plug-\" for commands."' \
   "$ROOT/PluginControl.qml"
 rg -Fq 'fontSizeMode: Text.HorizontalFit' "$ROOT/PluginControl.qml"
 rg -Fq 'visible: root.backgroundDim' "$ROOT/PluginControl.qml"
@@ -274,15 +311,21 @@ rg -Fq 'readonly property bool hasRefreshWarnings' "$ROOT/PluginControl.qml"
 rg -Fq 'readonly property string refreshWarningText' "$ROOT/PluginControl.qml"
 rg -Fq 'readonly property bool refreshStatusUrgent' "$ROOT/PluginControl.qml"
 rg -Fq 'return time + " (" + date + ")"' "$ROOT/PluginControl.qml"
-rg -Fq 'text: root.leftStatusText' "$ROOT/PluginControl.qml"
-rg -Fq 'text: root.rightStatusText' "$ROOT/PluginControl.qml"
-rg -Fq 'horizontalAlignment: Text.AlignRight' "$ROOT/PluginControl.qml"
+# Both status streams still render; they share one slot in the action
+# strip instead of owning a row of their own.
+rg -Fq '? leftStatusText : rightStatusText' "$ROOT/PluginControl.qml"
+rg -Fq 'statusText: root.stripStatusText' "$ROOT/PluginControl.qml"
+rg -Fq 'horizontalAlignment: Text.AlignRight' "$ROOT/PaletteFooter.qml"
 rg -Fq '"Last update: "' "$ROOT/PluginControl.qml"
 rg -Fq '"Catalog refreshed: "' "$ROOT/PluginControl.qml"
 rg -Fq '"Checking for updates..."' "$ROOT/PluginControl.qml"
-rg -Fq 'id: updateWarningIcon' "$ROOT/PluginControl.qml"
-rg -Fq 'id: refreshWarningIcon' "$ROOT/PluginControl.qml"
-rg -Fq 'text: "\uf071"' "$ROOT/PluginControl.qml"
+# Update and catalog warnings still surface, now as one header icon
+# whose tooltip carries both texts.
+rg -Fq 'readonly property string combinedWarningText' "$ROOT/PluginControl.qml"
+rg -Fq 'parts.push(updateWarningText)' "$ROOT/PluginControl.qml"
+rg -Fq 'parts.push(refreshWarningText)' "$ROOT/PluginControl.qml"
+rg -Fq 'action: "warning", label: combinedWarningText' \
+  "$ROOT/PluginControl.qml"
 rg -Fq 'panelBorder: root.shortcutColor' "$ROOT/PluginControl.qml"
 if rg -q 'lastRefreshError|Offline/stale' "$ROOT/Service.qml" \
     "$ROOT/PluginControl.qml" "$ROOT/lib/backend"; then

@@ -6,6 +6,7 @@ import Quickshell.Wayland
 import qs.Commons
 import qs.Ui
 import "Fuzzy.js" as Fuzzy
+import "Icons.js" as Icons
 import "PaletteViewModel.js" as PaletteViewModel
 import "lib/shortcuts" as Shortcuts
 
@@ -22,6 +23,8 @@ Item {
   property bool surfaceVisible: false
   property alias query: queryInput.text
   property string mode: "browse"
+  property string activeFilter: "all"
+  property var filterCounts: ({})
   property int selectedIndex: 0
   property var filteredRecords: []
   property var selectedRecord: null
@@ -67,40 +70,48 @@ Item {
   readonly property color urgent: Color.urgent
   readonly property var borderSpec: Border.surfaceSpec(
     "menu", "border", borderColor, Math.max(1, Style.space(2)))
-  readonly property int cardWidth: Math.min(Style.space(720),
-    Math.max(Style.space(320), panel.width - Style.gapsOut * 2))
-  readonly property int rowHeight: Style.space(60)
-  readonly property int headerHeight: Style.space(52)
-  readonly property int footerHeight: Style.space(42)
+  readonly property int cardPadding: Style.space(6)
+  readonly property int cardWidth: Math.min(Style.space(760),
+    Math.max(Style.space(420), panel.width - Style.gapsOut * 2))
+  readonly property int railWidth: Style.space(150)
+  readonly property int railMinHeight: Style.space(288)
+  readonly property int rowSpacing: Style.space(1)
+  readonly property int rowHeight: settingsMenuOpen
+    ? Style.space(44) : Style.space(28)
+  readonly property int headerHeight: Style.space(46)
+  readonly property int columnHeaderHeight: Style.space(22)
+  readonly property int footerHeight: Style.space(38)
   readonly property bool paletteChromeVisible: !settingsMenuOpen
+  // The detail replaces the table inside the same card: the search row and
+  // the rail stay put, the column header and action strip fold away.
+  readonly property bool detailOpen: actionDialog.opened
   readonly property int activeHeaderHeight: paletteChromeVisible
     ? headerHeight : 0
+  readonly property int activeColumnHeaderHeight: paletteChromeVisible
+    && !detailOpen ? columnHeaderHeight : 0
   readonly property int activeFooterHeight: paletteChromeVisible
-    ? footerHeight : 0
-  readonly property int statusHeight: paletteChromeVisible
-    && (leftStatusText.length > 0 || rightStatusText.length > 0)
-    ? Style.space(28) : 0
+    && !detailOpen ? footerHeight : 0
   readonly property int visibleRows: Math.max(1,
-    Math.min(6, filteredRecords.length || 1))
+    Math.min(14, filteredRecords.length || 1))
   readonly property int resultRowsHeight: visibleRows * rowHeight
-    + Math.max(0, visibleRows - 1) * Style.space(2)
-  readonly property int chromeSpacingCount: paletteChromeVisible
-    ? (statusHeight > 0 ? 3 : 2) : 0
-  readonly property int desiredCardHeight: Style.spacing.panelPadding * 2
-    + activeHeaderHeight + resultRowsHeight
-    + activeFooterHeight + statusHeight
-    + Style.spacing.sm * chromeSpacingCount
-  readonly property int availableCardHeight: Math.max(Style.space(220),
+    + Math.max(0, visibleRows - 1) * rowSpacing
+  readonly property int desiredCardHeight: cardPadding * 2
+    + activeHeaderHeight + activeColumnHeaderHeight + resultRowsHeight
+    + activeFooterHeight
+  readonly property int availableCardHeight: Math.max(Style.space(180),
     panel.height - restingY - Style.gapsOut)
-  readonly property int actionCardHeight: actionDialog.readOnly
-    ? Math.max(Style.space(360), actionDialog.preferredReadOnlyHeight)
-    : Style.space(540)
-  readonly property int cardHeight: actionDialog.opened
-    ? Math.min(actionCardHeight, availableCardHeight)
-    : (selfRemovalDialog.opened
-      ? Math.min(Style.space(280), availableCardHeight)
-      : Math.min(Style.space(600), Math.max(Style.space(220),
-          Math.min(desiredCardHeight, availableCardHeight))))
+  readonly property int browseCardHeight: Math.min(Style.space(600),
+    Math.max(paletteChromeVisible ? railMinHeight : Style.space(180),
+      Math.min(desiredCardHeight, availableCardHeight)))
+  // Only a floor, never growth: the card keeps its browse height unless the
+  // table was so short that the detail would not be usable.
+  readonly property int detailCardHeight: Math.max(browseCardHeight,
+    Style.space(400))
+  readonly property int cardHeight: selfRemovalDialog.opened
+    ? Math.min(Style.space(280), availableCardHeight)
+    : (detailOpen
+      ? Math.min(detailCardHeight, availableCardHeight)
+      : Math.min(browseCardHeight, availableCardHeight))
   readonly property int topBarOffset: shell && shell.bar
     && shell.bar.position === "top" && shell.bar.barHidden !== true
     ? Number(shell.bar.barSize || 0) : 0
@@ -208,6 +219,79 @@ Item {
   readonly property real rightStatusOpacity: refreshStatusActive
     || refreshSuccessActive || refreshStatusUrgent ? 1 : 0.70
 
+  // A typed `plug-...:` command overrides the rail, so clear the rail
+  // highlight rather than showing a filter that is not being applied.
+  readonly property string railActiveFilter: mode === "browse"
+    ? activeFilter : ""
+  readonly property string railFooterText: {
+    if (service && service.refreshing) return "refreshing"
+    if (service && service.lastSuccessfulRefresh) {
+      var instant = new Date(String(service.lastSuccessfulRefresh))
+      if (isFinite(instant.getTime()))
+        return padTimePart(instant.getHours()) + ":"
+          + padTimePart(instant.getMinutes())
+    }
+    return "not refreshed"
+  }
+  readonly property var stripActions: shortcutRecord
+    ? PaletteViewModel.actionOptions(shortcutRecord, false) : []
+  readonly property bool stripUsesLeftStatus: transientMessage.length > 0
+    || leftStatusActive || leftSuccessActive || leftUrgent
+  readonly property string stripStatusText: stripUsesLeftStatus
+    ? leftStatusText : rightStatusText
+  readonly property color stripStatusColor: stripUsesLeftStatus
+    ? leftStatusColor : rightStatusColor
+  readonly property real stripStatusOpacity: stripUsesLeftStatus
+    ? leftStatusOpacity : rightStatusOpacity
+  readonly property bool stripStatusAcknowledgeable: service
+    && service.actionState && service.actionState.acknowledged === false
+  readonly property string stripHintText: displayModel.count > 0
+    ? "Select a plugin for its actions" : ""
+  readonly property int pendingUpdateCount: {
+    var numeric = Number(filterCounts ? filterCounts["updates"] : 0)
+    return isFinite(numeric) && numeric > 0 ? numeric : 0
+  }
+  readonly property string combinedWarningText: {
+    var parts = []
+    if (hasUpdateWarnings && !(service && service.checkingUpdates))
+      parts.push(updateWarningText)
+    if (hasRefreshWarnings && !(service && service.refreshing))
+      parts.push(refreshWarningText)
+    return parts.join("\n\n")
+  }
+  readonly property var headerActions: {
+    var out = []
+    if (combinedWarningText.length > 0)
+      out.push({ action: "warning", label: combinedWarningText })
+    out.push({ action: "refresh", label: "Refresh catalog" })
+    out.push({ action: "updates", label: "Check for plugin updates" })
+    out.push({ action: "settings", label: "Settings" })
+    return out
+  }
+  readonly property string emptyStateText: {
+    if (mode === "update") {
+      if (service && service.checkingUpdates)
+        return "Checking installed plugins..."
+      return service && service.lastUpdateCheckError
+        ? "No safely updateable plugins found"
+        : "All plugins are up to date!"
+    }
+    if (mode === "add") return "No plugins available to add match this query"
+    if (mode === "remove")
+      return "No removable local plugins match this query"
+    if (mode === "enable") return "No disabled plugins match this query"
+    if (mode === "disable") return "No enabled plugins match this query"
+    if (mode === "installed") return "No installed plugins match this query"
+    if (mode === "command") return "No command matches this query"
+    if (activeFilter === "updates")
+      return service && service.checkingUpdates
+        ? "Checking installed plugins..."
+        : "No plugin updates are pending."
+    if (activeFilter !== "all")
+      return "No plugins in this filter match this query."
+    return "No plugins match this query"
+  }
+
   function resolveTargetScreen() {
     var focused = Hyprland.focusedMonitor
     var name = focused ? String(focused.name || "") : ""
@@ -291,8 +375,9 @@ Item {
     filterStartedAt = Date.now()
     var records = service && Array.isArray(service.records)
       ? service.records : []
+    filterCounts = Fuzzy.counts(records)
     var result = settingsMenuOpen ? PaletteViewModel.settingsResult()
-      : Fuzzy.search(records, query, 50)
+      : Fuzzy.search(records, query, 200, activeFilter)
     mode = result.mode
     filteredRecords = result.results
     displayModel.clear()
@@ -330,6 +415,52 @@ Item {
     if (String(candidate.operation || "") === "update"
         && service) service.requestUpdateCheck()
     return true
+  }
+
+  function runHeaderAction(action) {
+    var value = String(action || "")
+    if (value === "refresh") {
+      transientMessage = ""
+      if (service) service.requestRefresh(true)
+    } else if (value === "updates") {
+      transientMessage = ""
+      if (activeFilter !== "updates") setFilter("updates")
+      if (service) service.requestUpdateCheck()
+    } else if (value === "settings") {
+      openSettings()
+    }
+  }
+
+  function cycleFilter(offset) {
+    var names = Fuzzy.FILTERS
+    var current = names.indexOf(activeFilter)
+    if (current < 0) current = 0
+    var next = (current + offset + names.length) % names.length
+    setFilterExact(String(names[next]))
+  }
+
+  function setFilterExact(id) {
+    activeFilter = String(id || "all")
+    selectedIndex = 0
+    transientMessage = ""
+    rebuildResults()
+    Qt.callLater(queryInput.forceActiveFocus)
+  }
+
+  function setFilter(id) {
+    var next = String(id || "all")
+    if (!settingsMenuOpen && activeFilter === next) next = "all"
+    activeFilter = next
+    selectedIndex = 0
+    transientMessage = ""
+    if (settingsMenuOpen) closeSettingsMenu()
+    else rebuildResults()
+    Qt.callLater(queryInput.forceActiveFocus)
+  }
+
+  function requestStripOperation(operation) {
+    if (!openDialogFor(shortcutRecord, false)) return
+    actionDialog.selectOperation(String(operation))
   }
 
   function openDialogFor(record, readOnly) {
@@ -663,6 +794,8 @@ Item {
       openMarketplaceShortcut()
     } else if (isControlShortcut(event, Qt.Key_G)) {
       openGithubShortcut()
+    } else if (isControlShortcut(event, Qt.Key_F)) {
+      cycleFilter(1)
     } else if (isControlShortcut(event, Qt.Key_S)) {
       openSettings()
     } else if (isControlShortcut(event, Qt.Key_R)) {
@@ -784,12 +917,20 @@ Item {
       width: root.cardWidth
       height: root.cardHeight
       x: Math.round((panel.width - width) / 2)
+
+      Behavior on height {
+        NumberAnimation {
+          duration: root.service && root.service.animationsEnabled ? 110 : 0
+          easing.type: Easing.OutCubic
+        }
+      }
+
       y: root.restingY - Math.round((1 - reveal) * Style.space(18))
       opacity: reveal
       radius: Style.cornerRadius
       color: root.background
       borderSpec: root.borderSpec
-      padding: Style.spacing.panelPadding
+      padding: root.cardPadding
       focus: true
 
       Keys.priority: Keys.BeforeItem
@@ -812,51 +953,6 @@ Item {
         onClicked: {}
       }
 
-      ActionDialog {
-        id: actionDialog
-        anchors.fill: parent
-        z: 20
-        plugin: root.selectedRecord
-        selfId: root.pluginId
-        busy: root.service ? root.service.actionRunning : false
-        installInTerminal: root.installInTerminal
-        background: root.background
-        foreground: root.foreground
-        selectedBackground: root.selectedBackground
-        selectedText: root.selectedText
-        warningColor: root.urgent
-        marketplaceOrange: root.marketplaceOrange
-        marketplaceGreen: root.successColor
-        marketplaceYellow: root.shortcutColor
-        marketplaceRed: root.urgent
-        previewLoading: root.service ? root.service.previewLoading : false
-        previewFailed: root.service && root.service.previewState
-          && root.selectedRecord
-          && root.service.previewState.id === root.selectedRecord.id
-          && root.service.previewState.failed === true
-        previewCardSource: root.service && root.service.previewState
-          && root.selectedRecord
-          && root.service.previewState.id === root.selectedRecord.id
-          ? String(root.service.previewState.cardUrl || "") : ""
-        previewDetailSource: root.service && root.service.previewState
-          && root.selectedRecord
-          && root.service.previewState.id === root.selectedRecord.id
-          ? String(root.service.previewState.detailUrl || "") : ""
-        onCanceled: {
-          closeDialog()
-          Qt.callLater(queryInput.forceActiveFocus)
-        }
-        onTerminalInstallToggled: function(enabled) {
-          root.setInstallInTerminal(enabled)
-        }
-        onPreviewRequested: function(url, name, width, height) {
-          root.openPreview(url, name, width, height)
-        }
-        onActionRequested: function(operation) {
-          root.confirmAction(operation)
-        }
-      }
-
       SelfRemovalDialog {
         id: selfRemovalDialog
         anchors.fill: parent
@@ -877,292 +973,407 @@ Item {
         }
       }
 
-      Column {
+      Row {
         anchors.fill: parent
         anchors.topMargin: card.contentTopInset
         anchors.rightMargin: card.contentRightInset
         anchors.bottomMargin: card.contentBottomInset
         anchors.leftMargin: card.contentLeftInset
-        spacing: Style.spacing.sm
+        spacing: root.cardPadding
 
-        Rectangle {
+        PaletteFilterRail {
+          id: filterRail
           visible: root.paletteChromeVisible
-          width: parent.width
-          height: root.activeHeaderHeight
-          radius: Style.cornerRadius
-          color: Util.alpha(root.foreground, 0.06)
+          width: visible ? root.railWidth : 0
+          height: parent.height
+          counts: root.filterCounts
+          activeFilter: root.railActiveFilter
+          foreground: root.foreground
+          accent: root.accent
+          urgent: root.urgent
+          pointerInteractive: !root.modalDialogOpened
+          footerText: root.railFooterText
+          footerBusy: root.service ? root.service.refreshing === true : false
+          onFilterPicked: function(id) { root.setFilter(id) }
+        }
 
-          Text {
-            id: searchIcon
-            anchors.left: parent.left
-            anchors.leftMargin: Style.spacing.md
-            anchors.verticalCenter: parent.verticalCenter
-            text: "󰍉"
-            color: root.foreground
-            opacity: 0.70
-            font.family: Style.font.family
-            font.pixelSize: Style.font.iconLarge
+        Column {
+          id: tableColumn
+          width: parent.width
+            - (filterRail.visible ? filterRail.width + parent.spacing : 0)
+          height: parent.height
+          spacing: 0
+
+          Item {
+            id: headerArea
+            visible: root.paletteChromeVisible
+            width: parent.width
+            height: root.activeHeaderHeight
+
+            Rectangle {
+              anchors.left: parent.left
+              anchors.right: headerActions.left
+              anchors.rightMargin: Style.spacing.sm
+              anchors.verticalCenter: parent.verticalCenter
+              height: Style.space(32)
+              radius: Style.cornerRadius
+              color: Util.alpha(root.foreground, 0.06)
+              border.width: Math.max(1, Style.space(1))
+              border.color: Util.alpha(root.foreground, 0.09)
+
+              Text {
+                id: searchIcon
+                anchors.left: parent.left
+                anchors.leftMargin: Style.spacing.md
+                anchors.verticalCenter: parent.verticalCenter
+                text: Icons.glyph("search")
+                textFormat: Text.PlainText
+                color: root.foreground
+                opacity: 0.55
+                font.family: Style.font.family
+                font.pixelSize: Style.font.iconSmall
+              }
+
+              TextInput {
+                id: queryInput
+                anchors.left: searchIcon.right
+                anchors.leftMargin: Style.spacing.sm
+                anchors.right: shortcutLabel.left
+                anchors.rightMargin: Style.spacing.sm
+                anchors.verticalCenter: parent.verticalCenter
+                color: root.foreground
+                selectionColor: root.selectedBackground
+                selectedTextColor: root.selectedText
+                font.family: Style.font.menuFamily
+                font.pixelSize: Style.font.body
+                clip: true
+                readOnly: root.settingsMenuOpen
+                selectByMouse: true
+                activeFocusOnTab: true
+                onTextChanged: {
+                  root.selectedIndex = 0
+                  root.transientMessage = ""
+                  root.rebuildResults()
+                }
+                Keys.priority: Keys.BeforeItem
+                Keys.onPressed: function(event) {
+                  if (root.handleKey(event)) event.accepted = true
+                }
+
+                TapHandler {
+                  acceptedButtons: Qt.LeftButton
+                  onTapped: root.spaceActivatesSelection = false
+                }
+
+                Text {
+                  visible: !queryInput.text
+                  anchors.fill: parent
+                  text: "Search plugins, or type \"plug-\" for commands."
+                  textFormat: Text.PlainText
+                  color: root.foreground
+                  opacity: 0.42
+                  font: queryInput.font
+                  fontSizeMode: Text.HorizontalFit
+                  minimumPixelSize: Math.max(Style.font.caption,
+                    queryInput.font.pixelSize - 2)
+                  verticalAlignment: Text.AlignVCenter
+                  elide: Text.ElideRight
+                }
+              }
+
+              Text {
+                id: shortcutLabel
+                anchors.right: parent.right
+                anchors.rightMargin: Style.spacing.md
+                anchors.verticalCenter: parent.verticalCenter
+                text: paletteBinding.label
+                textFormat: Text.PlainText
+                color: root.foreground
+                opacity: 0.40
+                font.family: Style.font.menuFamily
+                font.pixelSize: Style.font.caption
+              }
+            }
+
+            Row {
+              id: headerActions
+              anchors.right: parent.right
+              anchors.verticalCenter: parent.verticalCenter
+              spacing: Style.spacing.sm
+
+              Repeater {
+                model: root.headerActions
+
+                delegate: Rectangle {
+                  id: headerButton
+                  required property var modelData
+                  width: Style.space(32)
+                  height: Style.space(32)
+                  radius: Style.cornerRadius
+                  color: Util.alpha(root.foreground,
+                    headerButtonHover.containsMouse ? 0.14 : 0.06)
+                  border.width: Math.max(1, Style.space(1))
+                  border.color: Util.alpha(root.foreground, 0.09)
+
+                  MouseArea {
+                    id: headerButtonHover
+                    anchors.fill: parent
+                    hoverEnabled: true
+                    cursorShape: root.modalDialogOpened
+                      ? Qt.ArrowCursor : Qt.PointingHandCursor
+                    onClicked: {
+                      if (root.modalDialogOpened) return
+                      root.runHeaderAction(String(headerButton.modelData.action))
+                    }
+                  }
+
+                  Text {
+                    anchors.centerIn: parent
+                    text: Icons.glyph(headerButton.modelData.action)
+                    textFormat: Text.PlainText
+                    color: headerButton.modelData.action === "warning"
+                      ? root.shortcutColor : root.foreground
+                    font.family: Style.font.family
+                    font.pixelSize: Style.font.iconSmall
+                  }
+
+                  Rectangle {
+                    visible: headerButton.modelData.action === "updates"
+                      && root.pendingUpdateCount > 0
+                    anchors.right: parent.right
+                    anchors.top: parent.top
+                    anchors.margins: Style.space(4)
+                    width: Style.space(6)
+                    height: width
+                    radius: width
+                    color: root.shortcutColor
+                  }
+
+                  PanelToolTip {
+                    visible: headerButtonHover.containsMouse
+                    text: headerButton.modelData.label
+                    panelBorder: root.shortcutColor
+                    fontFamily: Style.font.menuFamily
+                  }
+                }
+              }
+            }
           }
 
-          TextInput {
-            id: queryInput
-            anchors.left: searchIcon.right
-            anchors.leftMargin: Style.spacing.sm
-            anchors.right: shortcutLabel.left
-            anchors.rightMargin: Style.spacing.sm
-            anchors.verticalCenter: parent.verticalCenter
-            color: root.foreground
-            selectionColor: root.selectedBackground
-            selectedTextColor: root.selectedText
-            font.family: Style.font.menuFamily
-            font.pixelSize: Style.font.heading
-            clip: true
-            readOnly: root.settingsMenuOpen
-            selectByMouse: true
-            activeFocusOnTab: true
-            onTextChanged: {
-              root.selectedIndex = 0
-              root.transientMessage = ""
-              root.rebuildResults()
-            }
-            Keys.priority: Keys.BeforeItem
-            Keys.onPressed: function(event) {
-              if (root.handleKey(event)) event.accepted = true
-            }
+          Item {
+            id: columnHeader
+            visible: root.paletteChromeVisible
+            width: parent.width
+            height: root.activeColumnHeaderHeight
 
-            TapHandler {
-              acceptedButtons: Qt.LeftButton
-              onTapped: root.spaceActivatesSelection = false
+            Rectangle {
+              anchors.left: parent.left
+              anchors.right: parent.right
+              anchors.bottom: parent.bottom
+              height: Math.max(1, Style.space(1))
+              color: Util.alpha(root.foreground, 0.10)
             }
 
             Text {
-              visible: !queryInput.text
-              anchors.fill: parent
-              text: "Search plugins (or type \"plug-...\" for direct plugin commands)."
+              id: stateHeading
+              anchors.right: parent.right
+              anchors.rightMargin: Style.spacing.md
+              anchors.verticalCenter: parent.verticalCenter
+              width: Style.space(78)
+              text: "STATE"
               textFormat: Text.PlainText
               color: root.foreground
-              opacity: 0.48
-              font: queryInput.font
-              fontSizeMode: Text.HorizontalFit
-              minimumPixelSize: Math.max(Style.font.body,
-                queryInput.font.pixelSize - 1)
-              verticalAlignment: Text.AlignVCenter
+              opacity: 0.40
+              font.family: Style.font.menuFamily
+              font.pixelSize: Style.font.caption
+              font.letterSpacing: Style.spaceReal(1)
+              elide: Text.ElideRight
+            }
+
+            Text {
+              id: versionHeading
+              anchors.right: stateHeading.left
+              anchors.rightMargin: Style.spacing.md
+              anchors.verticalCenter: parent.verticalCenter
+              width: Style.space(54)
+              text: "VER"
+              textFormat: Text.PlainText
+              color: root.foreground
+              opacity: 0.40
+              font.family: Style.font.menuFamily
+              font.pixelSize: Style.font.caption
+              font.letterSpacing: Style.spaceReal(1)
+              elide: Text.ElideRight
+            }
+
+            Text {
+              id: authorHeading
+              anchors.right: versionHeading.left
+              anchors.rightMargin: Style.spacing.md
+              anchors.verticalCenter: parent.verticalCenter
+              width: Style.space(118)
+              text: "AUTHOR"
+              textFormat: Text.PlainText
+              color: root.foreground
+              opacity: 0.40
+              font.family: Style.font.menuFamily
+              font.pixelSize: Style.font.caption
+              font.letterSpacing: Style.spaceReal(1)
+              elide: Text.ElideRight
+            }
+
+            Text {
+              anchors.left: parent.left
+              anchors.leftMargin: Style.space(16) + Style.spacing.md
+              anchors.right: authorHeading.left
+              anchors.rightMargin: Style.spacing.md
+              anchors.verticalCenter: parent.verticalCenter
+              text: "PLUGIN"
+              textFormat: Text.PlainText
+              color: root.foreground
+              opacity: 0.40
+              font.family: Style.font.menuFamily
+              font.pixelSize: Style.font.caption
+              font.letterSpacing: Style.spaceReal(1)
               elide: Text.ElideRight
             }
           }
 
-          Text {
-            id: shortcutLabel
-            anchors.right: parent.right
-            anchors.rightMargin: Style.spacing.md
-            anchors.verticalCenter: parent.verticalCenter
-            text: paletteBinding.label
-            color: root.foreground
-            opacity: 0.55
-            font.family: Style.font.menuFamily
-            font.pixelSize: Style.font.body
-          }
-        }
-
-        Item {
-          width: parent.width
-          height: Math.max(root.rowHeight,
-            parent.height - root.activeHeaderHeight - root.activeFooterHeight
-              - root.statusHeight
-              - parent.spacing * root.chromeSpacingCount)
-          clip: true
-
-          ListView {
-            id: resultList
-            anchors.fill: parent
-            visible: displayModel.count > 0
-            model: displayModel
+          Item {
+            width: parent.width
+            height: Math.max(root.rowHeight, parent.height
+              - root.activeHeaderHeight - root.activeColumnHeaderHeight
+              - root.activeFooterHeight)
             clip: true
-            boundsBehavior: Flickable.StopAtBounds
-            spacing: Style.space(2)
-            delegate: PaletteResultRow {
-              width: ListView.view.width
-              selected: index === root.selectedIndex
-              settingsMenuOpen: root.settingsMenuOpen
-              pointerInteractive: !root.modalDialogOpened
-              rowHeight: root.rowHeight
+
+            ListView {
+              id: resultList
+              anchors.fill: parent
+              anchors.topMargin: Style.space(2)
+              visible: !root.detailOpen && displayModel.count > 0
+              model: displayModel
+              clip: true
+              boundsBehavior: Flickable.StopAtBounds
+              spacing: root.rowSpacing
+              delegate: PaletteResultRow {
+                width: ListView.view.width
+                selected: index === root.selectedIndex
+                settingsMenuOpen: root.settingsMenuOpen
+                pointerInteractive: !root.modalDialogOpened
+                rowHeight: root.rowHeight
+                foreground: root.foreground
+                selectedBackground: root.selectedBackground
+                selectedText: root.selectedText
+                accent: root.accent
+                successColor: root.successColor
+                urgent: root.urgent
+                onHovered: root.select(index)
+                onActivated: {
+                  root.select(index)
+                  root.activateIndex(index)
+                }
+                onRepositoryRequested: function(url) { root.openWebsite(url) }
+              }
+            }
+
+            Text {
+              visible: !root.detailOpen && displayModel.count === 0
+              anchors.fill: parent
+              anchors.leftMargin: Style.space(16) + Style.spacing.md
+              text: root.emptyStateText
+              textFormat: Text.PlainText
+              color: root.foreground
+              opacity: 0.55
+              font.family: Style.font.menuFamily
+              font.pixelSize: Style.font.bodySmall
+              horizontalAlignment: Text.AlignLeft
+              verticalAlignment: Text.AlignVCenter
+              wrapMode: Text.WordWrap
+            }
+
+            ActionDialog {
+              id: actionDialog
+              anchors.fill: parent
+              z: 20
+              opacity: actionDialog.opened ? 1 : 0
+
+              transform: Translate {
+                x: actionDialog.opened ? 0 : Style.space(14)
+
+                Behavior on x {
+                  NumberAnimation {
+                    duration: root.service && root.service.animationsEnabled
+                      ? 110 : 0
+                    easing.type: Easing.OutCubic
+                  }
+                }
+              }
+              plugin: root.selectedRecord
+              selfId: root.pluginId
+              busy: root.service ? root.service.actionRunning : false
+              installInTerminal: root.installInTerminal
+              background: root.background
               foreground: root.foreground
               selectedBackground: root.selectedBackground
               selectedText: root.selectedText
-              urgent: root.urgent
-              onHovered: root.select(index)
-              onActivated: {
-                root.select(index)
-                root.activateIndex(index)
+              warningColor: root.urgent
+              marketplaceOrange: root.marketplaceOrange
+              marketplaceGreen: root.successColor
+              marketplaceYellow: root.shortcutColor
+              marketplaceRed: root.urgent
+              previewLoading: root.service ? root.service.previewLoading : false
+              previewFailed: root.service && root.service.previewState
+                && root.selectedRecord
+                && root.service.previewState.id === root.selectedRecord.id
+                && root.service.previewState.failed === true
+              previewCardSource: root.service && root.service.previewState
+                && root.selectedRecord
+                && root.service.previewState.id === root.selectedRecord.id
+                ? String(root.service.previewState.cardUrl || "") : ""
+              previewDetailSource: root.service && root.service.previewState
+                && root.selectedRecord
+                && root.service.previewState.id === root.selectedRecord.id
+                ? String(root.service.previewState.detailUrl || "") : ""
+              onCanceled: {
+                closeDialog()
+                Qt.callLater(queryInput.forceActiveFocus)
               }
-              onRepositoryRequested: function(url) { root.openWebsite(url) }
-            }
-          }
-
-          Text {
-            visible: displayModel.count === 0
-            anchors.fill: parent
-            text: root.mode === "update"
-              ? (root.service && root.service.checkingUpdates
-                ? "Checking installed plugins..."
-                : (root.service && root.service.lastUpdateCheckError
-                  ? "No safely updateable plugins found"
-                  : "All plugins are up to date!"))
-              : (root.mode === "add"
-              ? "No plugins available to add match this query"
-              : (root.mode === "remove"
-                ? "No removable local plugins match this query"
-                : (root.mode === "enable"
-                  ? "No disabled plugins match this query"
-                  : (root.mode === "disable"
-                    ? "No enabled plugins match this query"
-                    : (root.mode === "command"
-                      ? "No command matches this query"
-                      : "No plugins match this query")))))
-            textFormat: Text.PlainText
-            color: root.foreground
-            opacity: 0.62
-            font.family: Style.font.menuFamily
-            font.pixelSize: Style.font.title
-            horizontalAlignment: Text.AlignLeft
-            verticalAlignment: Text.AlignVCenter
-          }
-        }
-
-        Item {
-          visible: root.statusHeight > 0
-          width: parent.width
-          height: root.statusHeight
-
-          Item {
-            id: leftStatusArea
-            anchors.left: parent.left
-            anchors.right: statusGap.left
-            anchors.top: parent.top
-            anchors.bottom: parent.bottom
-
-            Text {
-              id: leftStatusLabel
-              anchors.left: parent.left
-              anchors.verticalCenter: parent.verticalCenter
-              width: Math.min(implicitWidth, Math.max(0, parent.width
-                - (updateWarningIcon.visible
-                  ? updateWarningIcon.implicitWidth + Style.spacing.sm : 0)))
-              text: root.leftStatusText
-              textFormat: Text.PlainText
-              color: root.leftStatusColor
-              opacity: root.leftStatusOpacity
-              font.family: Style.font.menuFamily
-              font.pixelSize: Style.font.body
-              elide: Text.ElideRight
-              verticalAlignment: Text.AlignVCenter
-
-              MouseArea {
-                anchors.fill: parent
-                enabled: root.service && root.service.actionState
-                  && root.service.actionState.acknowledged === false
-                onClicked: root.dismissStatus()
+              onTerminalInstallToggled: function(enabled) {
+                root.setInstallInTerminal(enabled)
               }
-            }
-
-            Text {
-              id: updateWarningIcon
-              visible: root.hasUpdateWarnings
-                && !(root.service && root.service.checkingUpdates)
-              anchors.left: leftStatusLabel.right
-              anchors.leftMargin: Style.spacing.sm
-              anchors.verticalCenter: parent.verticalCenter
-              text: "\uf071"
-              textFormat: Text.PlainText
-              color: root.shortcutColor
-              font.family: Style.font.family
-              font.pixelSize: Style.font.icon
-
-              MouseArea {
-                id: updateWarningHover
-                anchors.fill: parent
-                hoverEnabled: true
-                cursorShape: Qt.ArrowCursor
+              onPreviewRequested: function(url, name, width, height) {
+                root.openPreview(url, name, width, height)
               }
-
-              PanelToolTip {
-                visible: updateWarningHover.containsMouse
-                text: root.updateWarningText
-                panelBorder: root.shortcutColor
-                fontFamily: Style.font.menuFamily
+              onActionRequested: function(operation) {
+                root.confirmAction(operation)
               }
             }
           }
 
-          Item {
-            id: statusGap
-            anchors.horizontalCenter: parent.horizontalCenter
-            width: Style.spacing.sm
-            height: 1
-          }
-
-          Item {
-            id: rightStatusArea
-            anchors.left: statusGap.right
-            anchors.right: parent.right
-            anchors.top: parent.top
-            anchors.bottom: parent.bottom
-
-            Text {
-              id: rightStatusLabel
-              anchors.left: parent.left
-              anchors.right: refreshWarningIcon.visible
-                ? refreshWarningIcon.left : parent.right
-              anchors.rightMargin: refreshWarningIcon.visible
-                ? Style.spacing.sm : 0
-              anchors.verticalCenter: parent.verticalCenter
-              text: root.rightStatusText
-              textFormat: Text.PlainText
-              color: root.rightStatusColor
-              opacity: root.rightStatusOpacity
-              font.family: Style.font.menuFamily
-              font.pixelSize: Style.font.body
-              horizontalAlignment: Text.AlignRight
-              elide: Text.ElideLeft
-              verticalAlignment: Text.AlignVCenter
+          PaletteFooter {
+            visible: root.paletteChromeVisible
+            width: parent.width
+            height: root.activeFooterHeight
+            record: root.shortcutRecord
+            actions: root.stripActions
+            statusText: root.stripStatusText
+            statusColor: root.stripStatusColor
+            statusOpacity: root.stripStatusOpacity
+            statusAcknowledgeable: root.stripStatusAcknowledgeable
+            hintText: root.stripHintText
+            busy: root.service ? root.service.actionRunning === true : false
+            pointerInteractive: !root.modalDialogOpened
+            foreground: root.foreground
+            shortcutColor: root.shortcutColor
+            urgent: root.urgent
+            onOperationRequested: function(operation) {
+              root.requestStripOperation(operation)
             }
-
-            Text {
-              id: refreshWarningIcon
-              visible: root.hasRefreshWarnings
-                && !(root.service && root.service.refreshing)
-              anchors.right: parent.right
-              anchors.verticalCenter: parent.verticalCenter
-              text: "\uf071"
-              textFormat: Text.PlainText
-              color: root.shortcutColor
-              font.family: Style.font.family
-              font.pixelSize: Style.font.icon
-
-              MouseArea {
-                id: refreshWarningHover
-                anchors.fill: parent
-                hoverEnabled: true
-                cursorShape: Qt.ArrowCursor
-              }
-
-              PanelToolTip {
-                visible: refreshWarningHover.containsMouse
-                text: root.refreshWarningText
-                panelBorder: root.shortcutColor
-                fontFamily: Style.font.menuFamily
-              }
-            }
+            onInfoRequested: root.openSelectedInfo()
+            onWebsiteRequested: root.openMarketplaceShortcut()
+            onSourceRequested: root.openGithubShortcut()
+            onStatusDismissed: root.dismissStatus()
           }
-        }
-
-        PaletteFooter {
-          visible: root.paletteChromeVisible
-          width: parent.width
-          height: root.activeFooterHeight
-          marketplaceLabel: root.marketplaceShortcutLabel
-          foreground: root.foreground
-          shortcutColor: root.shortcutColor
         }
       }
     }

@@ -118,8 +118,9 @@ test("short plugin text leaves commands unpinned", () => {
 test("partial command input hides plugin rows", () => {
   const add = Fuzzy.search(records, "plug-ad", 50);
   assert.equal(add.mode, "command");
+  assert.equal(add.results[0].commandCompletion, "plug-add: ");
   assert.deepEqual(add.results.map((row) => row.commandCompletion),
-    ["plug-add: "]);
+    ["plug-add: ", "plug-installed: "]);
 
   const remove = Fuzzy.search(records, "plug-rm", 50);
   assert.equal(remove.mode, "command");
@@ -139,13 +140,14 @@ test("command-shaped selection is fuzzy and keeps add first", () => {
   for (const query of ["plg-ad"]) {
     const result = Fuzzy.search(records, query, 50);
     assert.equal(result.mode, "command");
+    assert.equal(result.results[0].commandCompletion, "plug-add: ");
     assert.deepEqual(result.results.map((row) => row.commandCompletion),
-      ["plug-add: "]);
+      ["plug-add: ", "plug-installed: "]);
   }
   assert.deepEqual(Fuzzy.search(records, "plug", 50)
     .results.map((row) => row.commandCompletion),
     ["plug-add: ", "plug-remove: ", "plug-enable: ", "plug-disable: ",
-      "plug-update: "]);
+      "plug-update: ", "plug-installed: "]);
   assert.deepEqual(Fuzzy.search(records, "plug", 1)
     .results.map((row) => row.commandCompletion), ["plug-add: "]);
 });
@@ -478,24 +480,24 @@ test("shared action model follows every plugin state", () => {
   }
 
   assert.deepEqual(labels({ id: "builtin.on", builtIn: true, enabled: true,
-    canDisable: true }), ["Cancel", "Disable"]);
+    canDisable: true }), ["Back", "Disable"]);
   assert.deepEqual(labels({ id: "builtin.off", builtIn: true, enabled: false,
-    canDisable: true }), ["Cancel", "Enable"]);
+    canDisable: true }), ["Back", "Enable"]);
   assert.deepEqual(labels({ id: "user.available", installable: true }),
-    ["Cancel", "Add"]);
+    ["Back", "Add"]);
   assert.deepEqual(labels({ id: "user.on", installed: true, enabled: true,
     canDisable: true, removable: true, updateStatus: "unknown" }),
-  ["Cancel", "Update", "Disable", "Remove"]);
+  ["Back", "Update", "Disable", "Remove"]);
   assert.deepEqual(labels({ id: "user.off", installed: true, enabled: false,
     canDisable: true, removable: true, updateStatus: "current" }),
-  ["Cancel", "Update", "Enable", "Remove"]);
+  ["Back", "Update", "Enable", "Remove"]);
   assert.deepEqual(labels({ id: "bar.on", builtIn: true,
     fullBar: true, enabled: true }),
-    ["Cancel"]);
+    ["Back"]);
   assert.deepEqual(labels({ id: "bar.off", builtIn: true,
     fullBar: true, enabled: false }),
-    ["Cancel", "Enable"]);
-  assert.deepEqual(labels({ id: "x.info" }, true), ["Close"]);
+    ["Back", "Enable"]);
+  assert.deepEqual(labels({ id: "x.info" }, true), ["Back"]);
 });
 
 test("unavailable Update remains present with its explanation", () => {

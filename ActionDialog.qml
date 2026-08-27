@@ -2,6 +2,7 @@ import QtQuick
 import qs.Commons
 import qs.Ui
 import "CatalogModel.js" as CatalogModel
+import "Icons.js" as Icons
 import "PaletteViewModel.js" as PaletteViewModel
 
 FocusScope {
@@ -69,7 +70,29 @@ FocusScope {
     && previewCardSource.length > 0 && previewDetailSource.length > 0
   readonly property int preferredReadOnlyHeight:
     Style.spacing.panelPadding * 2 + contentColumn.implicitHeight
-      + Style.space(7) + Style.space(38)
+      + Style.space(7) + Style.space(56)
+  readonly property var metaRows: {
+    var out = []
+    var value = plugin || ({})
+    out.push({ key: "Author",
+      value: String(value.author || "Unknown"), tone: "" })
+    out.push({ key: "Version",
+      value: String(value.version || "Unknown"), tone: "" })
+    out.push({ key: "Source",
+      value: String(value.sourceLabel || "Unknown")
+        + (String(value.warning || "")
+          ? "  -  " + String(value.warning) : ""),
+      tone: String(value.warning || "") ? "warn" : "" })
+    if (value.installed === true)
+      out.push({ key: "Checkout",
+        value: "~/.config/omarchy/plugins/" + String(value.id || ""),
+        tone: "dim" })
+    out.push({ key: "Repository",
+      value: String(value.repository || "Not supplied"), tone: "" })
+    if (reviewedCommit.length > 0)
+      out.push({ key: "Reviewed", value: reviewedCommit, tone: "dim" })
+    return out
+  }
   readonly property var badgeItems: {
     var values = []
     if (activityState === "updated") values.push({
@@ -164,6 +187,33 @@ FocusScope {
     }
   }
 
+  function activateChoice(index) {
+    if (busy) return
+    selectChoice(index, true)
+    choose()
+  }
+
+  function selectOperation(operation) {
+    var target = String(operation || "")
+    for (var i = 0; i < actions.length; i++) {
+      if (String(actions[i].operation || "") === target) {
+        selectChoice(i, true)
+        return true
+      }
+    }
+    return false
+  }
+
+  function actionCaption(action) {
+    if (!action) return ""
+    var label = String(action.label || "")
+    if (action.available === false && String(action.reason || ""))
+      return label + "  -  " + String(action.reason)
+    if (action.operation === "remove")
+      return label + "  -  deletes the checkout and its bar entry"
+    return label
+  }
+
   function moveChoice(offset) {
     if (actions.length === 0) return
     selectChoice((selectedChoice + offset + actions.length)
@@ -239,12 +289,12 @@ FocusScope {
       id: contentFlick
       anchors.top: parent.top
       anchors.right: parent.right
-      anchors.bottom: actionRow.top
+      anchors.bottom: actionArea.top
       anchors.left: parent.left
-      anchors.topMargin: Style.spacing.panelPadding
-      anchors.rightMargin: Style.spacing.panelPadding
-      anchors.bottomMargin: Style.space(7)
-      anchors.leftMargin: Style.spacing.panelPadding
+      anchors.topMargin: Style.spacing.md
+      anchors.rightMargin: Style.spacing.md
+      anchors.bottomMargin: Style.space(6)
+      anchors.leftMargin: Style.spacing.md
       contentWidth: width
       contentHeight: contentColumn.implicitHeight
       clip: true
@@ -253,39 +303,98 @@ FocusScope {
       Column {
         id: contentColumn
         width: contentFlick.width
-        spacing: Style.space(7)
+        spacing: Style.space(5)
 
-      Text {
+      Row {
+        id: detailHeader
         width: parent.width
-        text: root.readOnly ? "PLUGIN INFORMATION" : "PLUGIN ACTIONS"
-        textFormat: Text.PlainText
-        color: root.marketplaceOrange
-        font.family: root.fontFamily
-        font.pixelSize: Style.font.body
-        font.bold: true
-        font.letterSpacing: Style.space(1)
-        elide: Text.ElideRight
-      }
+        spacing: Style.spacing.sm
 
-      Text {
-        width: parent.width
-        text: String(root.plugin && root.plugin.name || "")
-        textFormat: Text.PlainText
-        color: root.foreground
-        font.family: root.fontFamily
-        font.pixelSize: Style.font.heading + Style.space(2)
-        font.bold: true
-        elide: Text.ElideRight
+        // The detail replaces the table in place, so it needs a visible way
+        // back to it; Esc and the Back action do the same thing.
+        Rectangle {
+          id: backButton
+          anchors.verticalCenter: parent.verticalCenter
+          width: Style.space(22)
+          height: Style.space(22)
+          radius: Style.cornerRadius
+          color: Util.alpha(root.foreground,
+            backHover.containsMouse ? 0.16 : 0.06)
+          border.width: Math.max(1, Style.space(1))
+          border.color: Util.alpha(root.foreground, 0.12)
+
+          MouseArea {
+            id: backHover
+            anchors.fill: parent
+            hoverEnabled: true
+            cursorShape: Qt.PointingHandCursor
+            onClicked: root.canceled()
+          }
+
+          Text {
+            anchors.centerIn: parent
+            text: Icons.glyph("back")
+            textFormat: Text.PlainText
+            color: root.foreground
+            font.family: Style.font.family
+            font.pixelSize: Style.font.caption
+          }
+
+          PanelToolTip {
+            visible: backHover.containsMouse
+            text: "Back to the plugin list  (Esc)"
+            fontFamily: root.fontFamily
+          }
+        }
+
+        Rectangle {
+          anchors.verticalCenter: parent.verticalCenter
+          width: Style.space(7)
+          height: width
+          radius: width
+          color: root.plugin && root.plugin.enabled === false
+            ? Util.alpha(root.foreground, 0.34) : root.marketplaceGreen
+        }
+
+        Text {
+          anchors.verticalCenter: parent.verticalCenter
+          width: Math.min(implicitWidth, detailHeader.width * 0.60)
+          text: String(root.plugin && root.plugin.name || "")
+          textFormat: Text.PlainText
+          color: root.foreground
+          font.family: root.fontFamily
+          font.pixelSize: Style.font.subtitle
+          font.bold: true
+          elide: Text.ElideRight
+        }
+
+        Rectangle {
+          anchors.verticalCenter: parent.verticalCenter
+          width: statePillText.implicitWidth + Style.spacing.md
+          height: Style.space(18)
+          radius: Style.space(4)
+          color: Util.alpha(root.marketplaceGreen, 0.12)
+
+          Text {
+            id: statePillText
+            anchors.centerIn: parent
+            text: String(root.plugin && root.plugin.stateLabel || "")
+            textFormat: Text.PlainText
+            color: root.marketplaceGreen
+            font.family: root.fontFamily
+            font.pixelSize: Style.font.caption
+          }
+        }
       }
 
       Text {
         width: parent.width
         text: String(root.plugin && root.plugin.id || "")
         textFormat: Text.PlainText
-        color: root.marketplaceOrange
-        opacity: 0.88
+        color: root.foreground
+        opacity: 0.48
         font.family: root.fontFamily
-        font.pixelSize: Style.font.body
+        font.pixelSize: Style.font.caption
         elide: Text.ElideRight
       }
 
@@ -297,8 +406,8 @@ FocusScope {
         color: root.foreground
         opacity: 0.90
         font.family: root.fontFamily
-        font.pixelSize: Style.font.subtitle
-        lineHeight: 1.25
+        font.pixelSize: Style.font.caption
+        lineHeight: 1.35
         wrapMode: Text.Wrap
         maximumLineCount: root.readOnly ? 100 : 2
         elide: root.readOnly ? Text.ElideNone : Text.ElideRight
@@ -307,7 +416,7 @@ FocusScope {
       Rectangle {
         visible: root.hasPreview
         width: parent.width
-        height: visible ? Style.space(250) : 0
+        height: visible ? Style.space(150) : 0
         radius: Style.cornerRadius
         color: root.background
         border.width: Math.max(1, Style.space(1))
@@ -359,8 +468,8 @@ FocusScope {
           anchors.right: previewClickArea.right
           anchors.bottom: previewClickArea.bottom
           anchors.margins: Style.spacing.sm
-          width: previewHint.implicitWidth + Style.spacing.md
-          height: Style.space(28)
+          width: previewHint.implicitWidth + Style.spacing.sm
+          height: Style.space(22)
           radius: Style.space(4)
           color: Util.alpha(root.background, 0.90)
           border.width: Math.max(1, Style.space(1))
@@ -373,7 +482,7 @@ FocusScope {
             textFormat: Text.PlainText
             color: root.marketplaceOrange
             font.family: Style.font.family
-            font.pixelSize: Style.font.body
+            font.pixelSize: Style.font.caption
             font.bold: true
           }
         }
@@ -385,137 +494,44 @@ FocusScope {
         color: Util.alpha(root.foreground, 0.16)
       }
 
-      Row {
+      Column {
+        id: metaList
         width: parent.width
-        height: Style.space(38)
-        spacing: Style.spacing.md
+        spacing: Style.space(3)
 
-        Column {
-          width: (parent.width - parent.spacing) / 2
-          spacing: Style.space(2)
+        Repeater {
+          model: root.metaRows
 
-          Text {
-            text: "AUTHOR"
-            textFormat: Text.PlainText
-            color: root.marketplaceOrange
-            font.family: root.fontFamily
-            font.pixelSize: Style.font.caption
-            font.bold: true
-          }
-
-          Text {
-            width: parent.width
-            text: String(root.plugin && root.plugin.author || "Unknown")
-            textFormat: Text.PlainText
-            color: root.foreground
-            font.family: root.fontFamily
-            font.pixelSize: Style.font.subtitle
-            elide: Text.ElideRight
-          }
-        }
-
-        Column {
-          width: (parent.width - parent.spacing) / 2
-          spacing: Style.space(2)
-
-          Text {
-            text: "VERSION"
-            textFormat: Text.PlainText
-            color: root.marketplaceOrange
-            font.family: root.fontFamily
-            font.pixelSize: Style.font.caption
-            font.bold: true
-          }
-
-          Text {
-            width: parent.width
-            text: String(root.plugin && root.plugin.version || "Unknown")
-            textFormat: Text.PlainText
-            color: root.foreground
-            font.family: root.fontFamily
-            font.pixelSize: Style.font.subtitle
-            elide: Text.ElideRight
-          }
-        }
-      }
-
-      Text {
-        width: parent.width
-        text: "SOURCE  " + String(root.plugin
-          && root.plugin.sourceLabel || "Unknown")
-          + (String(root.plugin && root.plugin.warning || "")
-            ? "    " + String(root.plugin.warning) : "")
-        textFormat: Text.PlainText
-        color: String(root.plugin && root.plugin.warning || "")
-          ? root.marketplaceOrange : root.foreground
-        opacity: 0.88
-        font.family: root.fontFamily
-        font.pixelSize: Style.font.subtitle
-        elide: Text.ElideRight
-      }
-
-      Rectangle {
-        width: parent.width
-        height: Style.space(root.reviewedCommit.length > 0 ? 62 : 38)
-        radius: Style.cornerRadius
-        color: Util.alpha(root.foreground, 0.055)
-        border.width: Math.max(1, Style.space(1))
-        border.color: Util.alpha(root.foreground, 0.12)
-
-        Column {
-          anchors.fill: parent
-          anchors.margins: Style.spacing.sm
-          spacing: Style.space(4)
-
-          Row {
-            width: parent.width
-            height: Style.space(18)
+          delegate: Item {
+            id: metaRow
+            required property var modelData
+            width: metaList.width
+            height: Style.space(17)
 
             Text {
-              width: Style.space(92)
-              text: "REPOSITORY"
+              id: metaKey
+              anchors.left: parent.left
+              anchors.verticalCenter: parent.verticalCenter
+              width: Style.space(78)
+              text: metaRow.modelData.key
               textFormat: Text.PlainText
               color: root.marketplaceOrange
+              opacity: 0.88
               font.family: root.fontFamily
               font.pixelSize: Style.font.caption
-              font.bold: true
             }
 
             Text {
-              width: parent.width - Style.space(92)
-              text: String(root.plugin
-                && root.plugin.repository || "Not supplied")
+              anchors.left: metaKey.right
+              anchors.right: parent.right
+              anchors.verticalCenter: parent.verticalCenter
+              text: metaRow.modelData.value
               textFormat: Text.PlainText
-              color: root.foreground
-              font.family: root.fontFamily
-              font.pixelSize: Style.font.body
-              elide: Text.ElideMiddle
-            }
-          }
-
-          Row {
-            visible: root.reviewedCommit.length > 0
-            width: parent.width
-            height: visible ? Style.space(18) : 0
-
-            Text {
-              width: Style.space(92)
-              text: "REVIEWED"
-              textFormat: Text.PlainText
-              color: root.marketplaceOrange
+              color: metaRow.modelData.tone === "warn"
+                ? root.warningColor : root.foreground
+              opacity: metaRow.modelData.tone === "dim" ? 0.60 : 0.92
               font.family: root.fontFamily
               font.pixelSize: Style.font.caption
-              font.bold: true
-            }
-
-            Text {
-              width: parent.width - Style.space(92)
-              text: root.reviewedCommit
-              textFormat: Text.PlainText
-              color: root.foreground
-              opacity: 0.78
-              font.family: root.fontFamily
-              font.pixelSize: Style.font.body
               elide: Text.ElideMiddle
             }
           }
@@ -526,8 +542,8 @@ FocusScope {
         id: badgeFlow
         visible: root.badgeItems.length > 0
         width: parent.width
-        height: visible ? Style.space(24) : 0
-        spacing: Style.space(6)
+        height: visible ? Style.space(19) : 0
+        spacing: Style.space(5)
 
         Repeater {
           model: root.badgeItems
@@ -535,8 +551,8 @@ FocusScope {
           delegate: Rectangle {
             id: statusBadge
             required property var modelData
-            width: badgeText.implicitWidth + Style.spacing.md
-            height: Style.space(24)
+            width: badgeText.implicitWidth + Style.spacing.sm
+            height: Style.space(19)
             radius: Style.space(3)
             color: Util.alpha(modelData.color, 0.10)
             border.width: Math.max(1, Style.space(1))
@@ -549,7 +565,7 @@ FocusScope {
               textFormat: Text.PlainText
               color: statusBadge.modelData.color
               font.family: root.fontFamily
-              font.pixelSize: Style.font.bodySmall
+              font.pixelSize: Style.font.caption
               font.bold: true
               font.letterSpacing: Style.space(1)
             }
@@ -577,9 +593,9 @@ FocusScope {
         visible: root.metricItems.length > 0
         width: parent.width
         height: visible ? Math.ceil(root.metricItems.length / columnCount)
-          * Style.space(42) + Math.max(0,
+          * Style.space(28) + Math.max(0,
             Math.ceil(root.metricItems.length / columnCount) - 1) * spacing : 0
-        spacing: Style.space(7)
+        spacing: Style.space(5)
 
         Repeater {
           model: root.metricItems
@@ -588,7 +604,7 @@ FocusScope {
             id: metricChip
             required property var modelData
             width: metricFlow.chipWidth
-            height: Style.space(42)
+            height: Style.space(28)
             radius: Style.cornerRadius
             color: Util.alpha(modelData.color, 0.075)
             border.width: Math.max(1, Style.space(1))
@@ -599,7 +615,7 @@ FocusScope {
               anchors.centerIn: parent
               height: Math.max(metricIcon.implicitHeight,
                 metricLabel.implicitHeight)
-              spacing: Style.space(7)
+              spacing: Style.space(5)
 
               Text {
                 id: metricIcon
@@ -608,7 +624,7 @@ FocusScope {
                 textFormat: Text.PlainText
                 color: metricChip.modelData.color
                 font.family: Style.font.family
-                font.pixelSize: Style.font.iconLarge
+                font.pixelSize: Style.font.iconSmall
                 verticalAlignment: Text.AlignVCenter
               }
 
@@ -620,7 +636,7 @@ FocusScope {
                 textFormat: Text.PlainText
                 color: root.foreground
                 font.family: root.fontFamily
-                font.pixelSize: Style.font.subtitle
+                font.pixelSize: Style.font.caption
                 font.bold: true
                 verticalAlignment: Text.AlignVCenter
               }
@@ -649,7 +665,7 @@ FocusScope {
         color: root.marketplaceOrange
         opacity: 0.82
         font.family: root.fontFamily
-        font.pixelSize: Style.font.bodySmall
+        font.pixelSize: Style.font.caption
       }
 
       Text {
@@ -660,7 +676,7 @@ FocusScope {
         color: root.marketplaceOrange
         opacity: 0.82
         font.family: root.fontFamily
-        font.pixelSize: Style.font.subtitle
+        font.pixelSize: Style.font.caption
       }
 
       Flow {
@@ -676,7 +692,7 @@ FocusScope {
           delegate: Rectangle {
             required property string modelData
             width: tagText.implicitWidth + Style.spacing.sm
-            height: Style.space(24)
+            height: Style.space(19)
             radius: Style.space(4)
             color: Util.alpha(root.marketplaceOrange, 0.065)
             border.width: Math.max(1, Style.space(1))
@@ -689,7 +705,7 @@ FocusScope {
               textFormat: Text.PlainText
               color: root.marketplaceOrange
               font.family: root.fontFamily
-              font.pixelSize: Style.font.bodySmall
+              font.pixelSize: Style.font.caption
             }
           }
         }
@@ -698,7 +714,7 @@ FocusScope {
       Item {
         visible: root.terminalAllowed
         width: parent.width
-        height: visible ? Style.space(28) : 0
+        height: visible ? Style.space(24) : 0
 
         Text {
           anchors.left: parent.left
@@ -707,7 +723,7 @@ FocusScope {
           textFormat: Text.PlainText
           color: root.installInTerminal ? root.foreground : Color.muted
           font.family: root.fontFamily
-          font.pixelSize: Style.font.body
+          font.pixelSize: Style.font.caption
         }
 
         ToggleSwitch {
@@ -734,7 +750,7 @@ FocusScope {
         visible: root.selectedMutates
         width: parent.width
         height: visible ? Style.space(root.selectedOperation === "add"
-          ? 48 : 34) : 0
+          ? 40 : 26) : 0
         radius: Style.cornerRadius
         color: Util.alpha(root.selectedOperation === "add"
           ? root.warningColor : root.foreground, 0.10)
@@ -750,7 +766,7 @@ FocusScope {
           color: root.selectedOperation === "add"
             ? root.warningColor : root.foreground
           font.family: root.fontFamily
-          font.pixelSize: Style.font.body
+          font.pixelSize: Style.font.caption
           wrapMode: Text.Wrap
           elide: Text.ElideRight
         }
@@ -759,7 +775,7 @@ FocusScope {
       Rectangle {
         visible: root.helpText.length > 0
         width: parent.width
-        height: visible ? Style.space(42) : 0
+        height: visible ? Style.space(34) : 0
         radius: Style.cornerRadius
         color: Util.alpha(root.warningColor, 0.12)
 
@@ -770,7 +786,7 @@ FocusScope {
           textFormat: Text.PlainText
           color: root.warningColor
           font.family: root.fontFamily
-          font.pixelSize: Style.font.body
+          font.pixelSize: Style.font.caption
           wrapMode: Text.Wrap
           elide: Text.ElideRight
         }
@@ -779,53 +795,96 @@ FocusScope {
       }
     }
 
-    Row {
-      id: actionRow
+    Column {
+      id: actionArea
       anchors.right: parent.right
       anchors.bottom: parent.bottom
       anchors.left: parent.left
-      anchors.rightMargin: Style.spacing.panelPadding
-      anchors.bottomMargin: Style.spacing.panelPadding
-      anchors.leftMargin: Style.spacing.panelPadding
-      height: Style.space(38)
-      spacing: Style.spacing.sm
+      anchors.rightMargin: Style.spacing.md
+      anchors.bottomMargin: Style.spacing.md
+      anchors.leftMargin: Style.spacing.md
+      spacing: Style.spacing.xs
 
-      Repeater {
-        model: root.actions
+      Row {
+        id: actionRow
+        width: parent.width
+        height: Style.space(34)
+        spacing: Style.spacing.sm
 
-        delegate: Rectangle {
-          id: actionButton
-          required property var modelData
-          required property int index
-          width: (actionRow.width - actionRow.spacing
-            * Math.max(0, root.actions.length - 1))
-            / Math.max(1, root.actions.length)
-          height: parent.height
-          radius: Style.cornerRadius
-          color: root.selectedChoice === index
-            ? root.selectedBackground : "transparent"
-          border.width: root.readOnly && root.selectedChoice === index
-            ? Math.max(1, Style.space(1)) : 0
-          border.color: root.marketplaceYellow
-          opacity: modelData.available === false
-            && root.selectedChoice !== index ? 0.42 : 1
+        Repeater {
+          model: root.actions
 
-          Text {
-            anchors.centerIn: parent
-            text: root.busy && root.selectedChoice === actionButton.index
-              && actionButton.modelData.operation !== "cancel"
-              && actionButton.modelData.operation !== "close"
-              ? "Working..." : actionButton.modelData.label
-            color: root.selectedChoice === actionButton.index
-              ? root.selectedText
-              : (actionButton.modelData.dangerous === true
-                ? root.warningColor : root.foreground)
-            font.family: root.fontFamily
-            font.pixelSize: Style.font.title
-            font.bold: root.readOnly
+          delegate: Rectangle {
+            id: actionButton
+            required property var modelData
+            required property int index
+            readonly property bool active: root.selectedChoice === index
+            readonly property bool danger: modelData.dangerous === true
+            width: Style.space(34)
+            height: parent.height
+            radius: Style.cornerRadius
+            color: active
+              ? root.selectedBackground
+              : (danger
+                ? Util.alpha(root.warningColor,
+                    actionHover.containsMouse ? 0.20 : 0.10)
+                : Util.alpha(root.foreground,
+                    actionHover.containsMouse ? 0.14 : 0.06))
+            border.width: Math.max(1, Style.space(1))
+            border.color: active
+              ? root.marketplaceYellow
+              : (danger ? Util.alpha(root.warningColor, 0.42)
+                : Util.alpha(root.foreground, 0.12))
+            opacity: modelData.available === false && !active ? 0.42 : 1
+
+            MouseArea {
+              id: actionHover
+              anchors.fill: parent
+              hoverEnabled: true
+              cursorShape: actionButton.modelData.available === false
+                || root.busy ? Qt.ArrowCursor : Qt.PointingHandCursor
+              onEntered: root.selectChoice(actionButton.index, false)
+              onClicked: root.activateChoice(actionButton.index)
+            }
+
+            PanelToolTip {
+              visible: actionHover.containsMouse
+              text: root.actionCaption(actionButton.modelData)
+              panelBorder: actionButton.danger
+                ? root.warningColor : root.marketplaceYellow
+              fontFamily: root.fontFamily
+            }
+
+            Text {
+              anchors.centerIn: parent
+              text: root.busy && actionButton.active
+                && actionButton.modelData.operation !== "cancel"
+                && actionButton.modelData.operation !== "close"
+                ? Icons.glyph("refresh")
+                : Icons.glyph(actionButton.modelData.operation)
+              textFormat: Text.PlainText
+              color: actionButton.active
+                ? root.selectedText
+                : (actionButton.danger ? root.warningColor : root.foreground)
+              font.family: Style.font.family
+              font.pixelSize: Style.font.icon
+            }
           }
-
         }
+      }
+
+      Text {
+        width: parent.width
+        text: root.busy ? "Working..."
+          : root.actionCaption(root.selectedAction)
+        textFormat: Text.PlainText
+        color: root.selectedAction
+          && root.selectedAction.dangerous === true
+          ? root.warningColor : root.foreground
+        opacity: root.busy ? 1 : 0.68
+        font.family: root.fontFamily
+        font.pixelSize: Style.font.bodySmall
+        elide: Text.ElideRight
       }
     }
   }

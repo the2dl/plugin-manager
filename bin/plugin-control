@@ -66,8 +66,11 @@ audit_remote_command() {
   fi
   local tmp
   tmp="$(mktemp -d "${TMPDIR:-/tmp}/plugin-control-scan.XXXXXX")" || { json_error "could not create scan workspace"; return 0; }
-  # Best-effort cleanup even on failure.
-  trap 'rm -rf -- "$tmp"' RETURN
+  # Best-effort cleanup even on failure. The trap disarms itself first: bash
+  # does not scope a RETURN trap to the function that set it, so one left armed
+  # fires again on the next function return, where $tmp is out of scope and
+  # `set -u` turns that into an error escaping a scan that actually succeeded.
+  trap 'trap - RETURN; [[ -z ${tmp:-} ]] || rm -rf -- "$tmp"' RETURN
   if ! GIT_TERMINAL_PROMPT=0 GIT_ASKPASS=true git \
       -c core.hooksPath=/dev/null -c core.symlinks=false \
       -c protocol.ext.allow=never \
@@ -111,7 +114,8 @@ audit_update_command() {
     return 0
   fi
   tmp="$(mktemp -d "${TMPDIR:-/tmp}/plugin-control-update.XXXXXX")" || { audit_command "$root" "$dir" ""; return 0; }
-  trap 'git -C "$dir" worktree remove --force "$tmp/tree" 2>/dev/null; rm -rf -- "$tmp"' RETURN
+  # Self-disarming for the same reason as the scan trap above.
+  trap 'trap - RETURN; [[ -z ${tmp:-} ]] || { git -C "$dir" worktree remove --force "$tmp/tree" 2>/dev/null; rm -rf -- "$tmp"; }' RETURN
   if ! git -C "$dir" worktree add --quiet --detach "$tmp/tree" "$upstream" 2>/dev/null; then
     audit_command "$root" "$dir" ""
     return 0

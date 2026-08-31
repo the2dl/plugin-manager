@@ -176,14 +176,27 @@ update_all_command() {
   init_paths
   local results="[]" id
   local ok_ids=()
+
+  # omarchy-plugin-update runs `omarchy-shell shell rescanPlugins` after EVERY
+  # successful update. This helper is a child process of that shell, so the
+  # first success hot-reloads the plugin, destroys the QML Process running this
+  # script, and the loop dies after one plugin -- no summary, and the state
+  # rewrite below never happens. Neutralise the per-update rescan with a no-op
+  # on PATH; there is a single real rescan at the end of this function.
+  local shim; shim="$(mktemp -d)"
+  printf '#!/bin/sh\nexit 0\n' >"$shim/omarchy-shell"
+  chmod +x "$shim/omarchy-shell"
+
   for id in "$@"; do
-    if omarchy plugin update "$id" --yes >/dev/null 2>&1; then
+    if PATH="$shim:$PATH" omarchy plugin update "$id" --yes >/dev/null 2>&1; then
       results="$(jq -c --arg id "$id" '. + [{id:$id, ok:true}]' <<<"$results")"
       ok_ids+=("$id")
     else
       results="$(jq -c --arg id "$id" '. + [{id:$id, ok:false}]' <<<"$results")"
     fi
   done
+
+  rm -rf "$shim"
 
   if (( ${#ok_ids[@]} )) && [[ -f $UPDATE_STATE && ! -L $UPDATE_STATE ]]; then
     local ids_json tmp

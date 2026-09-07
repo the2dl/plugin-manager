@@ -121,8 +121,22 @@ FocusScope {
               enabled: !root.busy
               hoverEnabled: true
               cursorShape: Qt.PointingHandCursor
-              onEntered: root.selectedChoice = choiceRow.index
-              onClicked: root.choose()
+              // Hovering must not arm a destructive choice. openDialog()
+              // deliberately defaults to "No / abort"; letting the pointer
+              // select on entry threw that away the instant the cursor
+              // crossed a Yes row, so a single click -- on a dialog that
+              // opens centred, under wherever the cursor already was --
+              // removed the plugin outright. Yes rows now need one click to
+              // arm and a second to confirm; abort stays hover-selectable.
+              onEntered: if (choiceRow.index === 2)
+                root.selectedChoice = choiceRow.index
+              onClicked: {
+                if (root.selectedChoice !== choiceRow.index) {
+                  root.selectedChoice = choiceRow.index
+                  return
+                }
+                root.choose()
+              }
             }
           }
         }

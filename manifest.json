@@ -3,7 +3,7 @@
   "id": "io.github.the2dl.plugin-manager",
   "name": "Plugin Manager",
   "version": "0.2.1",
-  "author": "ilyaZar",
+  "author": "the2dl",
   "license": "MIT",
   "description": "A command-palette plugin manager for Omarchy with a built-in security scanner. Browse, add, enable, disable, update and remove shell plugins from a table UI, and see a static + optional AI security review of a plugin's code before you enable or update it. Forked from ilyaZar/plugin-control. The palette opens only when summoned, so it stays light in the background.",
   "kinds": [

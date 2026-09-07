@@ -520,3 +520,29 @@ test("unavailable Update remains present with its explanation", () => {
       updateStatus: status, updateReason: status }, false)[1].available,
     false);
 });
+
+// Regression: the action list is a live binding on the snapshot record, so an
+// entry can vanish while the dialog is open -- canDisable goes false during a
+// shell rescan. When it does, every later operation shifts up one slot and a
+// stationary selection index comes to mean something else. Here Remove moves
+// from 3 to 2, i.e. onto whatever the user had highlighted as Disable.
+// ActionDialog must therefore re-anchor on the operation, never on the index.
+test("removing Disable shifts Remove into the previous slot", () => {
+  const base = {
+    id: SELF_ID, installed: true, removable: true,
+    enabled: true, canDisable: true, updateStatus: "current"
+  };
+  const withDisable = Palette.actionOptions(base, false)
+    .map((o) => o.operation);
+  const withoutDisable = Palette.actionOptions(
+    Object.assign({}, base, { canDisable: false }), false)
+    .map((o) => o.operation);
+
+  assert.deepEqual(withDisable, ["cancel", "update", "disable", "remove"]);
+  assert.deepEqual(withoutDisable, ["cancel", "update", "remove"]);
+  // The same index means two different things across that transition, and one
+  // of them deletes the checkout.
+  assert.equal(withDisable[2], "disable");
+  assert.equal(withoutDisable[2], "remove");
+  assert.notEqual(withDisable[2], withoutDisable[2]);
+});

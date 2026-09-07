@@ -19,6 +19,13 @@ FocusScope {
   property string previewCardSource: ""
   property string previewDetailSource: ""
   property int selectedChoice: 0
+  // The operation the user actually pointed at. `actions` is a live
+  // binding on the snapshot record, so an entry can appear or vanish
+  // (canDisable flips during a shell rescan) while this dialog is open.
+  // selectedChoice is only an index: when the list shrinks under a
+  // stationary cursor, that index silently comes to mean a different
+  // -- possibly destructive -- action. Everything re-anchors on this.
+  property string selectedOperationPin: ""
   property string helpText: ""
   property var securityReport: ({})
   property bool securityScanning: false
@@ -198,6 +205,7 @@ FocusScope {
 
   function openDialog() {
     selectedChoice = 0
+    selectedOperationPin = ""
     helpText = ""
     gateOperation = ""
     gateInput = ""
@@ -217,6 +225,7 @@ FocusScope {
   function selectChoice(index, immediateHelp) {
     if (index < 0 || index >= actions.length) return
     selectedChoice = index
+    selectedOperationPin = String(actions[index].operation || "")
     helpDelay.stop()
     helpText = ""
     var action = actions[index]
@@ -243,6 +252,25 @@ FocusScope {
     return false
   }
 
+  // Keep the selection on the operation the user chose, not on its old slot.
+  // If that operation is gone, fall back to Back rather than inheriting a
+  // neighbour -- a vanished Disable must never leave Remove under the cursor.
+  onActionsChanged: {
+    if (!opened) return
+    if (selectedOperationPin === "") return
+    for (var i = 0; i < actions.length; i++) {
+      if (String(actions[i].operation || "") === selectedOperationPin) {
+        if (selectedChoice !== i) selectedChoice = i
+        return
+      }
+    }
+    selectedChoice = 0
+    selectedOperationPin = String(actions.length ? actions[0].operation : "")
+    helpDelay.stop()
+    helpText = ""
+    clearGate()
+  }
+
   function actionCaption(action) {
     if (!action) return ""
     var label = String(action.label || "")
@@ -262,6 +290,13 @@ FocusScope {
   function choose() {
     var action = selectedAction
     if (!action) return
+    // Last line of defence: act on what the user pointed at, never on
+    // whatever the index happens to address now.
+    if (selectedOperationPin !== ""
+        && String(action.operation || "") !== selectedOperationPin) {
+      selectChoice(selectedChoice, true)
+      return
+    }
     if (readOnly) {
       canceled()
       return

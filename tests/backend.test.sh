@@ -647,8 +647,10 @@ helper action "$self_plugin" remove io.github.the2dl.plugin-manager \
   "$snapshot_id" background >/dev/null
 status="$(wait_action)"
 wait_worker_release
-jq -e '.ok == true and .acknowledged == true
-  and .message == "Plugin Control removed, but Omarchy reported a shell refresh error."' \
+jq -e --arg name "$(jq -r '.name' "$ROOT/manifest.json")" \
+  '.ok == true and .acknowledged == true
+  and .message == ($name
+    + " removed, but Omarchy reported a shell refresh error.")' \
   <<<"$status" >/dev/null
 [[ ! -e $self_plugin && -d $self_plugin.removed && ! -e $snapshot_state ]]
 unset MOCK_REMOVE_PATH MOCK_EXIT
@@ -760,7 +762,8 @@ miss_out="$("$ROOT/bin/plugin-control" audit "$ROOT" "$ROOT/does-not-exist" 2>/d
 echo "$miss_out" | jq -e '.ok == false' >/dev/null \
   || { printf 'not ok - audit verb reports missing dir as JSON\n' >&2; exit 1; }
 # UTF-8 source must not crash under a C locale (the LC_ALL=C regression)
-utf8_dir="$(mktemp -d)"; trap 'rm -rf "$utf8_dir"' EXIT
+utf8_dir="$(mktemp -d)"
+trap 'rm -rf -- "$TEMP_ROOT" "$utf8_dir"' EXIT
 cat > "$utf8_dir/manifest.json" <<'J'
 {"schemaVersion":1,"id":"test.utf8","name":"Ünïcödé — test","version":"1.0.0","kinds":["service"],"entryPoints":{"service":"Service.qml"}}
 J

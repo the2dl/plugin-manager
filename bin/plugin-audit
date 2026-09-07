@@ -150,8 +150,15 @@ rules_files.unshift(DEFAULT_RULES) if File.exist?(DEFAULT_RULES)
 die("no rules to run") if rules_files.empty?
 
 yara = ENV["PLUGIN_AUDIT_YARA"] || "yara"
-_, status = Open3.capture2e(yara, "--version")
-unless status.success?
+# capture2e raises ENOENT when the binary is absent, so the missing-yara
+# message below is only reachable behind a rescue.
+_, status =
+  begin
+    Open3.capture2e(yara, "--version")
+  rescue Errno::ENOENT
+    [nil, nil]
+  end
+unless status&.success?
   die("yara is not installed. Install it with: omarchy pkg add yara")
 end
 
@@ -560,11 +567,18 @@ end
 
 shellcheck_ran = false
 unless shell_files.empty?
-  sc_out, sc_status = Open3.capture2e("shellcheck", "-f", "json",
-                                      "-i", INJECTION_CODES.keys.join(","),
-                                      *shell_files)
+  # A missing shellcheck must degrade to the no-shell-analysis limitation,
+  # not abort the whole scan with an ENOENT backtrace.
+  sc_out, sc_status =
+    begin
+      Open3.capture2e("shellcheck", "-f", "json",
+                      "-i", INJECTION_CODES.keys.join(","),
+                      *shell_files)
+    rescue Errno::ENOENT
+      [nil, nil]
+    end
   # shellcheck exits 1 when it has findings, which is the normal case.
-  if sc_status.exitstatus && sc_status.exitstatus < 2 || !sc_out.empty?
+  if sc_status && (sc_status.exitstatus && sc_status.exitstatus < 2 || !sc_out.empty?)
     begin
       shellcheck_ran = true
       JSON.parse(sc_out).each do |issue|

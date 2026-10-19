@@ -52,7 +52,7 @@ done
 rg -Fq 'PaletteFilterRail {' "$ROOT/PluginControl.qml"
 rg -Fq 'function setFilter(id)' "$ROOT/PluginControl.qml"
 rg -Fq 'filterCounts = Fuzzy.counts(records)' "$ROOT/PluginControl.qml"
-rg -Fq 'Fuzzy.search(records, query, 5000, activeFilter)' \
+rg -Fq 'Fuzzy.search(records, query, 25000, activeFilter)' \
   "$ROOT/PluginControl.qml"
 rg -Fq 'function appendPage(count)' "$ROOT/PluginControl.qml"
 rg -Fq 'onContentYChanged:' "$ROOT/PluginControl.qml"

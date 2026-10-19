@@ -3,6 +3,7 @@ import Quickshell
 import Quickshell.Hyprland
 import Quickshell.Io
 import Quickshell.Wayland
+import qs.Commons as Commons
 import qs.Commons
 import qs.Ui
 import "Fuzzy.js" as Fuzzy
@@ -44,9 +45,9 @@ Item {
   property int previewWidth: 0
   property int previewHeight: 0
   property var savedSettings: ({})
-  property color shortcutColor: Color.accent
-  property color successColor: Color.accent
-  property color marketplaceOrange: Color.accent
+  property color shortcutColor: Commons.Color.accent
+  property color successColor: Commons.Color.accent
+  property color marketplaceOrange: Commons.Color.accent
 
   readonly property string pluginId: manifest && manifest.id
     ? String(manifest.id) : "io.github.the2dl.plugin-manager"
@@ -58,18 +59,18 @@ Item {
     || Quickshell.env("HOME") + "/.cache"
   readonly property string previewCacheUrlPrefix: "file://" + cacheHome
     + "/omarchy/the2dl.plugin-manager/previews/"
-  readonly property string themeColorsPath: Color.currentThemePath
+  readonly property string themeColorsPath: Commons.Color.currentThemePath
     + "/colors.toml"
-  readonly property color background: Color.menu.background
-  readonly property color foreground: Color.menu.text
-  readonly property color borderColor: Color.menu.border
-  readonly property color scrim: Color.menu.scrim
+  readonly property color background: Commons.Color.menu.background
+  readonly property color foreground: Commons.Color.menu.text
+  readonly property color borderColor: Commons.Color.menu.border
+  readonly property color scrim: Commons.Color.menu.scrim
   readonly property bool backgroundDim: service
     && service.backgroundDim === true
-  readonly property color selectedBackground: Color.menu.selectedBackground
-  readonly property color selectedText: Color.menu.selectedText
-  readonly property color accent: Color.accent
-  readonly property color urgent: Color.urgent
+  readonly property color selectedBackground: Commons.Color.menu.selectedBackground
+  readonly property color selectedText: Commons.Color.menu.selectedText
+  readonly property color accent: Commons.Color.accent
+  readonly property color urgent: Commons.Color.urgent
   readonly property var borderSpec: Border.surfaceSpec(
     "menu", "border", borderColor, Math.max(1, Style.space(2)))
   readonly property int cardPadding: Style.space(6)
@@ -382,7 +383,7 @@ Item {
       ? service.records : []
     filterCounts = Fuzzy.counts(records)
     var result = settingsMenuOpen ? PaletteViewModel.settingsResult()
-      : Fuzzy.search(records, query, 5000, activeFilter)
+      : Fuzzy.search(records, query, 25000, activeFilter)
     mode = result.mode
     filteredRecords = result.results
     displayModel.clear()
@@ -799,7 +800,10 @@ Item {
 
   function sourceDir() {
     return manifest && manifest.__sourceDir
-      ? String(manifest.__sourceDir) : ""
+      ? String(manifest.__sourceDir)
+      : decodeURIComponent(
+          Qt.resolvedUrl(".").toString().replace(/^file:\/\//, ""))
+          .replace(/\/$/, "")
   }
 
   function sourcePath(relative) {
@@ -944,7 +948,7 @@ Item {
   }
 
   Connections {
-    target: Color
+    target: Commons.Color
     function onShellValuesChanged() { themeColorsFile.reload() }
   }
 

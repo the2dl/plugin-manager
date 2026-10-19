@@ -1,4 +1,5 @@
 import QtQuick
+import qs.Commons as Commons
 import qs.Commons
 import "Icons.js" as Icons
 
@@ -9,9 +10,9 @@ Item {
 
   property var counts: ({})
   property string activeFilter: "all"
-  property color foreground: Color.menu.text
-  property color accent: Color.accent
-  property color urgent: Color.urgent
+  property color foreground: Commons.Color.menu.text
+  property color accent: Commons.Color.accent
+  property color urgent: Commons.Color.urgent
   property bool pointerInteractive: true
   property string footerText: ""
   property bool footerBusy: false

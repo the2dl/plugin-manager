@@ -1,4 +1,5 @@
 import QtQuick
+import qs.Commons as Commons
 import qs.Commons
 import qs.Ui
 import "CatalogModel.js" as CatalogModel
@@ -26,16 +27,16 @@ FocusScope {
   // gate: they must type the operation name to confirm they have looked.
   property string gateOperation: ""
   property string gateInput: ""
-  property color background: Color.menu.background
-  property color foreground: Color.menu.text
-  property color selectedBackground: Color.menu.selectedBackground
-  property color selectedText: Color.menu.selectedText
-  property color warningColor: Color.urgent
+  property color background: Commons.Color.menu.background
+  property color foreground: Commons.Color.menu.text
+  property color selectedBackground: Commons.Color.menu.selectedBackground
+  property color selectedText: Commons.Color.menu.selectedText
+  property color warningColor: Commons.Color.urgent
   property string fontFamily: Style.font.menuFamily
-  property color marketplaceOrange: Color.accent
-  property color marketplaceGreen: Color.accent
-  property color marketplaceYellow: Color.accent
-  property color marketplaceRed: Color.urgent
+  property color marketplaceOrange: Commons.Color.accent
+  property color marketplaceGreen: Commons.Color.accent
+  property color marketplaceYellow: Commons.Color.accent
+  property color marketplaceRed: Commons.Color.urgent
 
   readonly property var securitySummary: securityReport
     && securityReport.summary ? securityReport.summary : ({})
@@ -54,7 +55,7 @@ FocusScope {
     ? warningColor
     : (securityVerdict === "review-suggested" ? marketplaceYellow
       : (securityVerdict === "scan-unavailable" || securityVerdict === "scan-error"
-        ? Color.muted : marketplaceGreen))
+        ? Commons.Color.muted : marketplaceGreen))
   readonly property string securityLabel: {
     if (securityScanning) return "Scanning plugin…"
     if (securityVerdict === "review-required") return "Review required"
@@ -586,7 +587,7 @@ FocusScope {
               color: metaRow.modelData.tone === "warn"
                 ? root.warningColor
                 : (metaRow.modelData.tone === "update"
-                  ? Color.accent : root.foreground)
+                  ? Commons.Color.accent : root.foreground)
               opacity: metaRow.modelData.tone === "dim" ? 0.60 : 0.92
               font.family: root.fontFamily
               font.pixelSize: Style.font.caption
@@ -995,7 +996,7 @@ FocusScope {
           anchors.verticalCenter: parent.verticalCenter
           text: "Run Add in Omarchy terminal  (T)"
           textFormat: Text.PlainText
-          color: root.installInTerminal ? root.foreground : Color.muted
+          color: root.installInTerminal ? root.foreground : Commons.Color.muted
           font.family: root.fontFamily
           font.pixelSize: Style.font.caption
         }

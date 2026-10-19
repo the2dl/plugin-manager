@@ -1,4 +1,5 @@
 import QtQuick
+import qs.Commons as Commons
 import qs.Commons
 
 FocusScope {
@@ -7,11 +8,11 @@ FocusScope {
   property bool opened: false
   property bool busy: false
   property int selectedChoice: 2
-  property color background: Color.menu.background
-  property color foreground: Color.menu.text
-  property color selectedBackground: Color.menu.selectedBackground
-  property color selectedText: Color.menu.selectedText
-  property color warningColor: Color.urgent
+  property color background: Commons.Color.menu.background
+  property color foreground: Commons.Color.menu.text
+  property color selectedBackground: Commons.Color.menu.selectedBackground
+  property color selectedText: Commons.Color.menu.selectedText
+  property color warningColor: Commons.Color.urgent
 
   signal removeRequested(bool deleteUserData)
   signal canceled()

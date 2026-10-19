@@ -1,4 +1,5 @@
 import QtQuick
+import qs.Commons as Commons
 import qs.Commons
 import qs.Ui
 import "Icons.js" as Icons
@@ -12,11 +13,11 @@ Item {
   property var record: null
   property var actions: []
   property string statusText: ""
-  property color statusColor: Color.menu.text
+  property color statusColor: Commons.Color.menu.text
   property real statusOpacity: 0.70
-  property color foreground: Color.menu.text
-  property color shortcutColor: Color.accent
-  property color urgent: Color.urgent
+  property color foreground: Commons.Color.menu.text
+  property color shortcutColor: Commons.Color.accent
+  property color urgent: Commons.Color.urgent
   property bool pointerInteractive: true
   property bool busy: false
   property bool statusAcknowledgeable: false

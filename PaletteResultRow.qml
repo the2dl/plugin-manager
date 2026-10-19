@@ -1,4 +1,5 @@
 import QtQuick
+import qs.Commons as Commons
 import qs.Commons
 import qs.Ui
 import "Icons.js" as Icons
@@ -27,12 +28,12 @@ Rectangle {
   property bool settingsMenuOpen: false
   property bool pointerInteractive: true
   property int rowHeight: Style.space(28)
-  property color foreground: Color.menu.text
-  property color selectedBackground: Color.menu.selectedBackground
-  property color selectedText: Color.menu.selectedText
-  property color accent: Color.accent
-  property color successColor: Color.accent
-  property color urgent: Color.urgent
+  property color foreground: Commons.Color.menu.text
+  property color selectedBackground: Commons.Color.menu.selectedBackground
+  property color selectedText: Commons.Color.menu.selectedText
+  property color accent: Commons.Color.accent
+  property color successColor: Commons.Color.accent
+  property color urgent: Commons.Color.urgent
 
   readonly property int authorWidth: Style.space(118)
   readonly property int versionWidth: Style.space(54)

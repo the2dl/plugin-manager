@@ -116,7 +116,7 @@ download_catalog() {
   local -a request=(
     curl --silent --show-error --location
     --proto '=https' --proto-redir '=https'
-    --connect-timeout 5 --max-time 20 --max-filesize 16777216
+    --connect-timeout 5 --max-time 20 --max-filesize 33554432
     --output "$body" --dump-header "$headers"
     --write-out '%{http_code}'
   )
@@ -134,7 +134,7 @@ download_marketplace_stats() {
   local body="$1"
   curl --silent --show-error --location \
     --proto '=https' --proto-redir '=https' \
-    --connect-timeout 5 --max-time 20 --max-filesize 1048576 \
+    --connect-timeout 5 --max-time 20 --max-filesize 4194304 \
     --output "$body" --write-out '%{http_code}' -- \
     "https://api.omarchyplugins.com/v1/stats"
 }
@@ -151,7 +151,7 @@ normalize_marketplace_stats() {
       type == "number" and floor == . and . >= 0 and . <= 1000000000000;
     if type != "object" or .schemaVersion != 1
       or (.plugins | type) != "object"
-      or (.plugins | length) > 5000
+      or (.plugins | length) > 25000
       or (all(.plugins | to_entries[];
         (.key | valid_id)
         and (.value | type == "object"
